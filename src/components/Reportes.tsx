@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { TrainingSession, Participant, AttendanceRecord, OperationConfirmation, User as AppUser } from '../types';
 import { BPO_CAMPAIGNS } from '../constants/campaigns';
+import { matchesReportDateRange } from '../utils/reportDateRange';
 
 interface ReportesProps {
   sessions: TrainingSession[];
@@ -38,6 +39,9 @@ export default function Reportes({
   const [filterCampaña, setFilterCampaña] = useState('todos');
   const [filterGeneracion, setFilterGeneracion] = useState('todos');
   const [searchTerm, setSearchTerm] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const invalidDateRange = Boolean(dateFrom && dateTo && dateFrom > dateTo);
 
   // Map sessions for fast lookup
   const sessionMap = useMemo(() => {
@@ -120,6 +124,7 @@ export default function Reportes({
     return participants.filter(p => {
       const s = sessionMap[p.training_session_id];
       if (!s) return false;
+      if (!matchesReportDateRange(s.fecha_inicio, dateFrom, dateTo)) return false;
 
       // Filter by Campaign
       if (filterCampaña !== 'todos' && s.campaña !== filterCampaña) return false;
@@ -144,10 +149,11 @@ export default function Reportes({
 
       return true;
     });
-  }, [participants, sessionMap, confirmationsMap, reportType, filterCampaña, filterGeneracion, searchTerm]);
+  }, [participants, sessionMap, confirmationsMap, reportType, filterCampaña, filterGeneracion, searchTerm, dateFrom, dateTo]);
 
   // CSV Generation & Browser Download
   const handleExportCSV = () => {
+    if (invalidDateRange) return;
     if (reportData.length === 0) {
       alert('No hay datos para exportar con los filtros actuales.');
       return;
@@ -286,7 +292,8 @@ export default function Reportes({
 
         <button
           onClick={handleExportCSV}
-          className="bg-linear-to-r from-fuchsia-600 to-indigo-600 hover:from-fuchsia-700 hover:to-indigo-700 text-white font-bold rounded-xl px-4 py-2.5 flex items-center justify-center gap-2 shadow-xs transition-colors"
+          disabled={invalidDateRange}
+          className="bg-linear-to-r from-fuchsia-600 to-indigo-600 hover:from-fuchsia-700 hover:to-indigo-700 text-white font-bold rounded-xl px-4 py-2.5 flex items-center justify-center gap-2 shadow-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Download className="w-4 h-4" />
           Exportar Reporte Activo (.CSV)
@@ -366,7 +373,7 @@ export default function Reportes({
 
       {/* Query Filters */}
       <div className="glass-card rounded-2xl p-5">
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 items-end">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
             <input
@@ -405,10 +412,39 @@ export default function Reportes({
             </select>
           </div>
 
+          <div className="min-w-0">
+            <label htmlFor="report-date-from" className="block text-xs font-semibold text-slate-500 mb-1">Desde</label>
+            <input
+              id="report-date-from"
+              type="date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(event) => setDateFrom(event.target.value)}
+              aria-invalid={invalidDateRange}
+              aria-describedby={invalidDateRange ? 'report-date-error' : undefined}
+              className="w-full min-w-0 glass-input text-slate-700 rounded-xl px-3 py-2.5 text-xs outline-hidden"
+            />
+          </div>
+          <div className="min-w-0">
+            <label htmlFor="report-date-to" className="block text-xs font-semibold text-slate-500 mb-1">Hasta</label>
+            <input
+              id="report-date-to"
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(event) => setDateTo(event.target.value)}
+              aria-invalid={invalidDateRange}
+              aria-describedby={invalidDateRange ? 'report-date-error' : undefined}
+              className="w-full min-w-0 glass-input text-slate-700 rounded-xl px-3 py-2.5 text-xs outline-hidden"
+            />
+          </div>
           <div className="flex items-center justify-end text-xs text-slate-500 font-semibold">
             Se encontraron {reportData.length} registros para exportación
           </div>
         </div>
+        {invalidDateRange && (
+          <p id="report-date-error" role="alert" className="mt-3 text-xs text-rose-600">Desde no puede ser posterior a Hasta.</p>
+        )}
       </div>
 
       {/* Grid Table Preview */}
