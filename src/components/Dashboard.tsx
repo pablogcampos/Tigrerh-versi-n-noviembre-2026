@@ -321,7 +321,7 @@ export default function Dashboard({
       .sort((a, b) => a.dia - b.dia)
       .forEach((record) => {
         if (
-          record.dia >= 2 &&
+          record.dia >= 1 &&
           record.dia <= 10 &&
           isDesertionAttendance(record.estado_asistencia) &&
           !firstDesertionByParticipant.has(record.participant_id)
@@ -343,7 +343,7 @@ export default function Dashboard({
       .sort((a, b) => a.dia - b.dia)
       .forEach((record) => {
         if (
-          record.dia >= 2 &&
+          record.dia >= 1 &&
           record.dia <= 10 &&
           isDesertionAttendance(record.estado_asistencia) &&
           !firstDesertionByParticipant.has(record.participant_id)
@@ -761,12 +761,12 @@ export default function Dashboard({
               <UserX className="text-rose-500 w-4.5 h-4.5" />
               Deserciones por Motivo
             </h3>
-            <span className="text-slate-400 text-xs font-mono">Día 2 a Día 10</span>
+            <span className="text-slate-400 text-xs font-mono">Día 1 a Día 10</span>
           </div>
           <div className="flex-1 min-h-[220px] flex items-center justify-center">
             {desercionesPorMotivo.length === 0 ? (
               <div className="text-center text-slate-400 py-10">
-                <p className="text-sm">No se registran deserciones entre el Día 2 y el Día 10</p>
+                <p className="text-sm">No se registran deserciones entre el Día 1 y el Día 10</p>
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
