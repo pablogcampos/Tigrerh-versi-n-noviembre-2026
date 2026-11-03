@@ -638,7 +638,7 @@ export default function Dashboard({
               <p className="text-slate-400 font-medium text-xs uppercase tracking-wider">Deserción Final</p>
               <h3 className="text-slate-900 text-3xl font-black mt-1">{metrics.desercionFinalRate}%</h3>
               <p className="text-xs text-rose-500 font-medium mt-1">
-                {metrics.desercionesFinales} de {metrics.asistieronDia2} no llegaron al {finalDesertionLabel}
+                {metrics.desercionesFinales} de {metrics.asistieronDia1} desde D1 no llegaron al {finalDesertionLabel}
               </p>
             </div>
             <div className="bg-rose-50 rounded-xl p-2.5 text-rose-600 border border-rose-100">

@@ -51,7 +51,7 @@ export const calculatePhaseMetrics = (
   const d5Ids = attendantsByDay.get(5) || new Set<string>();
   const d6Ids = attendantsByDay.get(6) || new Set<string>();
   const d10Ids = attendantsByDay.get(10) || new Set<string>();
-  const desercionesFinales = Math.max(d2Ids.size - finalDayIds.size, 0);
+  const desercionesFinales = Math.max(d1Ids.size - finalDayIds.size, 0);
 
   return {
     d1Ids,
@@ -67,6 +67,6 @@ export const calculatePhaseMetrics = (
     retencionCapacitacion: d1Ids.size > 0 ? Math.round((d5Ids.size / d1Ids.size) * 100) : 0,
     retencionOjt: d6Ids.size > 0 ? Math.round((d10Ids.size / d6Ids.size) * 100) : 0,
     desercionesFinales,
-    desercionFinalRate: d2Ids.size > 0 ? Math.round((desercionesFinales / d2Ids.size) * 100) : 0,
+    desercionFinalRate: d1Ids.size > 0 ? Math.round((desercionesFinales / d1Ids.size) * 100) : 0,
   };
 };

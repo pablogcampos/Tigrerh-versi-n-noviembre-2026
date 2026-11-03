@@ -127,9 +127,10 @@ test('GPON y Equifax cierran métricas en D5, sin deserción artificial por D10'
   assert.equal(metrics.desercionFinalRate, 0);
   assert.deepEqual([...metrics.finalDayIds].sort(), ['equifax', 'gpon']);
 });
-test('Altas y deserción de una campaña de cinco días usan D5 con base D2', () => {
+test('Altas y deserción de una campaña de cinco días usan D5 con base D1', () => {
   const participantIds = new Set(['1', '2', '3', '4', '5', '6']);
   const records = [...participantIds].flatMap((participant_id) => [
+    { participant_id, dia: 1, estado_asistencia: 'Asistió' },
     { participant_id, dia: 2, estado_asistencia: 'Asistió' },
     { participant_id, dia: 5, estado_asistencia: Number(participant_id) <= 3 ? 'Asistió' : 'Faltó' },
   ]);
