@@ -10,7 +10,7 @@ export const getSessionFinalTrainingDay = (session: {
 }): 5 | 10 => {
   const campaign = String(session.campaña || session.campana || '').trim();
   if (campaign) return getScheduledTrainingDays(campaign);
-  return Number(session.training_days) === 5 ? 5 : 10;
+  return 5;
 };
 
 export const calculatePhaseMetrics = (
@@ -29,7 +29,7 @@ export const calculatePhaseMetrics = (
 
   attendanceRecords.forEach((record) => {
     if (!participantIds.has(record.participant_id)) return;
-    const finalDay = finalDayByParticipant?.get(record.participant_id) || 10;
+    const finalDay = finalDayByParticipant?.get(record.participant_id) || 5;
     if (record.dia === 10 && isAttendedAttendance(record.estado_asistencia)) altasD10Ids.add(record.participant_id);
     if (record.dia === finalDay && isAttendedAttendance(record.estado_asistencia)) altasFinalIds.add(record.participant_id);
     if (!isPresentAttendance(record.estado_asistencia)) return;

@@ -49,7 +49,7 @@ const getSessionMetrics = (
   const sessionParticipants = participants.filter((participant) => participant.training_session_id === session.id);
   const participantIds = new Set(sessionParticipants.map((participant) => participant.id));
   const sessionAttendance = attendance.filter((record) =>
-    record.training_session_id === session.id && participantIds.has(record.participant_id),
+    record.training_session_id === session.id && record.dia >= 1 && record.dia <= 5 && participantIds.has(record.participant_id),
   );
   const recordsByDay = new Map<number, AttendanceRecord[]>();
   sessionAttendance.forEach((record) => {
@@ -83,9 +83,9 @@ const getSessionMetrics = (
   const finalAttendance = status === 'finalizada' && registeredDays.includes(totalDays)
     ? countPresent(totalDays)
     : null;
-  const attendanceForRetention = latestRegisteredDay >= 2 ? latestAttendance : 0;
-  const retained = dayTwoAttendance > 0 ? Math.min(dayTwoAttendance, attendanceForRetention) : 0;
-  const retention = dayTwoAttendance > 0 ? Math.round((retained / dayTwoAttendance) * 100) : null;
+  const attendanceForRetention = latestRegisteredDay >= 1 ? latestAttendance : 0;
+  const retained = dayOneAttendance > 0 ? Math.min(dayOneAttendance, attendanceForRetention) : 0;
+  const retention = dayOneAttendance > 0 ? Math.round((retained / dayOneAttendance) * 100) : null;
   const desertion = retention === null ? null : 100 - retention;
   const confirmedHighs = status === 'finalizada'
     ? confirmations.filter((confirmation) =>
@@ -127,7 +127,7 @@ function MonthlyComparisonTooltip({ active, payload }: { active?: boolean; paylo
       <p className="font-bold text-slate-900">{item.session.generation_code || item.session.nombre_generacion}</p>
       <div className="mt-2 space-y-1 text-slate-600">
         <p>Cargados: <strong>{item.loaded}</strong></p>
-        <p>Día 2: <strong>{item.dayTwoAttendance}</strong></p>
+        <p>Día 2: <strong>{item.dayOneAttendance}</strong></p>
         <p>Asistencia actual: <strong>{item.latestRegisteredDay ? item.latestAttendance : 'Pendiente'}</strong></p>
         <p>Deserción acumulada: <strong>{item.desertion === null ? 'Pendiente' : `${item.desertion}%`}</strong></p>
         <p>Estado: <strong>{statusPresentation[item.status].label}</strong></p>
@@ -155,10 +155,10 @@ export default function MonthlyTrainingView({
     finalizadas: sessionMetrics.filter((item) => item.status === 'finalizada').length,
   }), [sessionMetrics]);
   const globalDesertion = useMemo(() => {
-    const trainingsWithAttendance = sessionMetrics.filter((item) => item.latestRegisteredDay >= 2 && item.dayTwoAttendance > 0);
-    const dayTwoTotal = trainingsWithAttendance.reduce((total, item) => total + item.dayTwoAttendance, 0);
+    const trainingsWithAttendance = sessionMetrics.filter((item) => item.latestRegisteredDay >= 1 && item.dayOneAttendance > 0);
+    const dayTwoTotal = trainingsWithAttendance.reduce((total, item) => total + item.dayOneAttendance, 0);
     const currentTotal = trainingsWithAttendance.reduce(
-      (total, item) => total + Math.min(item.dayTwoAttendance, item.latestAttendance),
+      (total, item) => total + Math.min(item.dayOneAttendance, item.latestAttendance),
       0,
     );
     return {
@@ -246,7 +246,7 @@ export default function MonthlyTrainingView({
                     </div>
                     <div className="rounded-xl bg-indigo-50/70 p-3">
                       <p className="text-[10px] font-bold uppercase text-slate-400">Día 2</p>
-                      <p className="mt-1 text-xl font-black text-indigo-700">{item.latestRegisteredDay >= 2 ? item.dayTwoAttendance : '-'}</p>
+                      <p className="mt-1 text-xl font-black text-indigo-700">{item.latestRegisteredDay >= 1 ? item.dayOneAttendance : '-'}</p>
                     </div>
                     <div className="rounded-xl bg-emerald-50/70 p-3">
                       <p className="text-[10px] font-bold uppercase text-slate-400">Continúan</p>

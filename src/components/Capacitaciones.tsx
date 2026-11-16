@@ -34,7 +34,7 @@ import { getScheduledTrainingDays, hasCampaignOjt, isBusinessDate, isInitialAtte
 import { isOperationalOjtClosed } from '../../backend/src/services/attendancePolicy';
 import { findParticipantSurveyResponse } from '../utils/surveyCompletion';
 import { getBusinessDayDate, getTrainingDays, getTrainingDaysCount } from '../utils/trainingDays';
-import { BPO_CAMPAIGNS, getCampaignPrefix, normalizeCampaignName } from '../constants/campaigns';
+import { FORMATION_CAMPAIGNS, getCampaignPrefix, normalizeCampaignName } from '../constants/campaigns';
 import {
   getSessionInitialTrainerIds,
   getSessionOjtTrainerIds,
@@ -225,7 +225,7 @@ export default function Capacitaciones({
   // Form State
   const [fechaInicio, setFechaInicio] = useState(() => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Lima' }));
   const [fechaFin, setFechaFin] = useState('');
-  const [campaña, setCampaña] = useState<string>(BPO_CAMPAIGNS[0]);
+  const [campaña, setCampaña] = useState<string>(FORMATION_CAMPAIGNS[0]);
   const [tipoCapacitacion, setTipoCapacitacion] = useState('Capacitación regular');
   const [formadorInicialIds, setFormadorInicialIds] = useState<string[]>([]);
   const [formadorOjtIds, setFormadorOjtIds] = useState<string[]>([]);
@@ -723,9 +723,8 @@ export default function Capacitaciones({
     if (uppercaseFileName.includes('RUC 20')) {
       suggestedCampaña = 'Entel Empresas RUC 20';
     } else if (uppercaseFileName.includes('ENTEL EMPRESAS')) {
-      suggestedCampaña = BPO_CAMPAIGNS[0];
-    } else if (uppercaseFileName.includes('EQUIFAX')) {
-      suggestedCampaña = 'Equifax';
+      suggestedCampaña = FORMATION_CAMPAIGNS[0];
+
     } else if (uppercaseFileName.includes('GPON')) {
       suggestedCampaña = 'GPON';
     } else if (uppercaseFileName.includes('CULQI')) {
@@ -1504,11 +1503,11 @@ export default function Capacitaciones({
                 />
               </div>
 
-              <FilterMultiSelect label="Campañas" allLabel="Todas las Campañas" selected={filterCampañas} onChange={setFilterCampañas} options={BPO_CAMPAIGNS.map((item) => ({ value: item, label: item }))} />
+              <FilterMultiSelect label="Campañas" allLabel="Todas las Campañas" selected={filterCampañas} onChange={setFilterCampañas} options={FORMATION_CAMPAIGNS.map((item) => ({ value: item, label: item }))} />
               <FilterMultiSelect label="Generaciones" allLabel="Todas las generaciones" selected={filterGeneraciones} onChange={setFilterGeneraciones} options={Array.from(new Set(sessions.map(getTrainingIdentifier))).sort().map((code) => ({ value: code, label: code }))} />
               <FilterMultiSelect label="Estados" allLabel="Todos los Estados" selected={filterEstados} onChange={setFilterEstados} options={[
-                'Pendiente de inicio', 'En curso', 'Activa', 'Capacitación cerrada', 'Campaña cerrada', 'Abierto', 'Cerrado',
-              ].map((item) => ({ value: item, label: item === 'Abierto' ? 'OJT abierto' : item === 'Cerrado' ? 'OJT cerrado' : item }))} />
+                'Pendiente de inicio', 'En curso', 'Activa', 'Capacitación cerrada', 'Campaña cerrada',
+              ].map((item) => ({ value: item, label: item }))} />
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
                 <label className="min-w-0 flex-1 text-xs text-slate-500">Desde
                   <input type="date" value={filterDesde} max={filterHasta || undefined} onChange={(event) => setFilterDesde(event.target.value)} aria-label="Desde" className="w-full glass-input rounded-xl px-3 py-2.5 text-sm" />
@@ -1521,7 +1520,7 @@ export default function Capacitaciones({
               <FilterMultiSelect label="Meses" allLabel="Todos los meses" selected={filterMes} onChange={setFilterMes} options={Array.from({ length: 12 }, (_, index) => ({ value: String(index + 1).padStart(2, '0'), label: new Intl.DateTimeFormat('es-PE', { month: 'long' }).format(new Date(2026, index, 1)) }))} />
               <FilterMultiSelect label="Etapas" allLabel="Todas las etapas" selected={filterEtapas} onChange={(values) => setFilterEtapas(values.filter((value): value is 'initial' | 'ojt' => value === 'initial' || value === 'ojt'))} options={[
                 { value: 'initial', label: 'Capacitación Inicial' },
-                { value: 'ojt', label: 'OJT' },
+
               ]} />
               <div className="flex items-center justify-end text-xs text-slate-500">
                 Mostrando {filteredSessions.length} capacitaciones
@@ -1791,7 +1790,7 @@ export default function Capacitaciones({
                     onChange={(e) => handleCampañaChange(e.target.value)}
                     className="w-full text-sm bg-slate-50 text-slate-700 rounded-xl border border-slate-200 p-2.5 focus:ring-2 focus:ring-fuchsia-500 outline-hidden font-bold"
                   >
-                    {BPO_CAMPAIGNS.map((item) => <option key={item} value={item}>{item}</option>)}
+                    {FORMATION_CAMPAIGNS.map((item) => <option key={item} value={item}>{item}</option>)}
                   </select>
                 </div>
 
@@ -1835,13 +1834,6 @@ export default function Capacitaciones({
                   trainers={trainers}
                   onChange={setFormadorInicialIds}
                   required
-                />
-
-                <TrainerMultiSelect
-                  label="Formador OJT"
-                  trainerIds={formadorOjtIds}
-                  trainers={trainers}
-                  onChange={setFormadorOjtIds}
                 />
 
 
@@ -2391,7 +2383,7 @@ export default function Capacitaciones({
                     onChange={(e) => handleEditCampaignChange(e.target.value)}
                     className="w-full text-sm bg-slate-50 text-slate-700 rounded-xl border border-slate-200 p-2.5 focus:ring-2 focus:ring-indigo-500 outline-hidden font-bold"
                   >
-                    {BPO_CAMPAIGNS.map((item) => <option key={item} value={item}>{item}</option>)}
+                    {FORMATION_CAMPAIGNS.map((item) => <option key={item} value={item}>{item}</option>)}
                   </select>
                 </div>
 
@@ -2471,13 +2463,6 @@ export default function Capacitaciones({
                   trainers={trainers}
                   onChange={setEditFormadorInicialIds}
                   required
-                />
-
-                <TrainerMultiSelect
-                  label="Formador OJT"
-                  trainerIds={editFormadorOjtIds}
-                  trainers={trainers}
-                  onChange={setEditFormadorOjtIds}
                 />
 
                 <div>

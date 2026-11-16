@@ -3,7 +3,7 @@ import type { TrainingSession, OjtModule, Participant, AttendanceRecord, Operati
 
 export const TRAINING_EXPORT_HEADERS = [
   'Campaña', 'Código de generación', 'Nombre del postulante',
-  'Asistencia D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9', 'D10',
+  'Asistencia D1', 'D2', 'D3', 'D4', 'D5',
   'Desistió (Sí/No)', 'Motivo de desistimiento/baja', 'Apto/No apto', 'Nota del examen',
   'Perfil del ejecutivo',
 ];
@@ -25,14 +25,13 @@ export const buildTrainingWorkbook = (
     .map((p) => [`${p.training_session_id}/${p.id}`, p])).values()];
   const rows = people.map((person) => {
     const session = sessionMap.get(person.training_session_id)!;
-    const records = Array.from({ length: 10 }, (_, index) =>
+    const records = Array.from({ length: 5 }, (_, index) =>
       byDay.get(`${person.training_session_id}/${person.id}/${index + 1}`));
     const states = records.map((record, index) => record?.estado_asistencia
       ?? person[`asistencia_dia_${index + 1}` as keyof Participant] ?? '');
     const reasons = records.filter((record) => record && ['desistio', 'baja'].includes(key(record.estado_asistencia)))
       .map((record) => record!.motivo_desercion || record!.observacion || '').filter(Boolean);
-    const outcome = session.training_model === 'split_ojt' && person.resultado_formacion_ojt && person.resultado_formacion_ojt !== 'Marcar'
-      ? person.resultado_formacion_ojt : person.resultado_formacion;
+    const outcome = person.resultado_formacion;
     return [session.campaña || '', session.generation_code || session.nombre_generacion || '',
       `${person.nombres || ''} ${person.apellidos || ''}`.trim(), ...states,
       states.some((state) => key(String(state)) === 'desistio') ? 'Sí' : 'No',

@@ -3,7 +3,7 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import { dataDb as adminDb } from '../hybridDb.js';
 import { isEligibleForOjt } from '../services/surveyAutomationService.js';
-import { hasCampaignOjt } from '../services/trainingSchedule.js';
+import { hasLegacyCampaignOjt as hasCampaignOjt, isDayFiveSurveyEligible, isHiddenFormationCampaign } from '../services/trainingSchedule.js';
 
 const router = Router();
 const tokenSchema = z.string().trim().min(1).max(160);
@@ -48,24 +48,27 @@ const getPublicSurvey = async (surveyDoc: Awaited<ReturnType<typeof findSurvey>>
   const type = surveyType(survey);
   const sessionDoc = survey.training_session_id ? await adminDb.collection('sessions').doc(String(survey.training_session_id)).get() : null;
   const session = sessionDoc?.exists ? ({ id: sessionDoc.id, ...sessionDoc.data() } as Record<string, unknown>) : null;
-  const ojt = type === 'ojt' ? await getOjtContext(survey) : null;
-  if (type === 'ojt' && !ojt) return null;
+  if (type !== 'operaciones' && session && isHiddenFormationCampaign(session.campaña)) return null;
+  const groupSurvey = type === 'ojt' && Boolean(survey.ojt_module_id);
+  const ojt = groupSurvey ? await getOjtContext(survey) : null;
+  if (groupSurvey && !ojt) return null;
+  if (type === 'ojt' && !groupSurvey && !session) return null;
   const ojtSession = ojt?.sessions[0];
-  const ojtCampaigns = type === 'ojt'
+  const ojtCampaigns = groupSurvey
     ? Array.from(new Set(ojt!.sessions.map((item) => readString(item, ['campaña', 'campana', 'campa�a'])).filter(Boolean)))
     : [];
   return {
     id: survey.id, survey_type: type, training_session_id: String(survey.training_session_id || ''), ojt_module_id: String(survey.ojt_module_id || ''), estado: survey.estado, token: String(survey.token || ''),
-    campaña: type === 'ojt'
+    campaña: groupSurvey
       ? ojtCampaigns.join(', ')
       : readString(survey, ['campaña', 'campana', 'campa�a']) || readString(session || ojtSession, ['campaña', 'campana', 'campa�a']),
     subcampaña: readString(survey, ['subcampaña', 'subcampana']),
-    codigo_generacion: type === 'ojt'
+    codigo_generacion: groupSurvey
       ? String(survey.grupo_ojt || ojt!.module.nombre || '')
       : readString(session, ['generation_code', 'nombre_generacion']) || readString(survey, ['codigo_generacion']) || String(ojt?.module.nombre || ''),
     grupo_ojt: String(survey.grupo_ojt || ojt?.module.nombre || ''),
-    formador_id: type === 'ojt' ? String((ojt?.module.formador_ojt_ids as string[] | undefined)?.[0] || '') : readString(session, ['formador_id']) || readString(survey, ['formador_id']),
-    formador_nombre: type === 'ojt' ? String((ojt?.module.formador_ojt_nombres as string[] | undefined)?.join(', ') || survey.formador_nombre || '') : readString(session, ['formador_nombre']) || readString(survey, ['formador_nombre']),
+    formador_id: groupSurvey ? String((ojt?.module.formador_ojt_ids as string[] | undefined)?.[0] || '') : readString(session, ['formador_id']) || readString(survey, ['formador_id']),
+    formador_nombre: groupSurvey ? String((ojt?.module.formador_ojt_nombres as string[] | undefined)?.join(', ') || survey.formador_nombre || '') : readString(session, ['formador_nombre']) || readString(survey, ['formador_nombre']),
     supervisor_nombres: Array.from(new Set((Array.isArray(survey.supervisor_nombres) ? survey.supervisor_nombres : []).filter((name): name is string => typeof name === 'string' && Boolean(name.trim())))),
     start_date: String(survey.start_date || ojt?.module.fecha_inicio || session?.fecha_inicio || ''), end_date: String(survey.end_date || ojt?.module.fecha_fin || session?.fecha_fin || ''),
   };
@@ -85,6 +88,15 @@ const calculate = (answers: z.infer<typeof ratingSchema>) => {
   return { values, final_score_20, total_score: Number((final_score_20 * 2.5).toFixed(2)), classification: final_score_20 >= 18 ? 'Excelente' : final_score_20 >= 15 ? 'Bueno' : final_score_20 >= 11 ? 'Regular' : 'Crítico' };
 };
 const findParticipantForOjt = async (survey: Record<string, unknown>, dni: string) => {
+  if (!survey.ojt_module_id && survey.training_session_id) {
+    const sessionDoc = await adminDb.collection('sessions').doc(String(survey.training_session_id)).get();
+    if (!sessionDoc.exists || isHiddenFormationCampaign(sessionDoc.data()?.campaña)) return null;
+    const participantDoc = await findParticipantForInitial(String(survey.training_session_id), dni);
+    if (!participantDoc) return null;
+    const records = await adminDb.collection('attendance').where('participant_id', '==', participantDoc.id).get();
+    if (!isDayFiveSurveyEligible({ ...participantDoc.data(), id: participantDoc.id }, records.docs.map((doc) => doc.data()))) return null;
+    return { participantDoc, session: { ...sessionDoc.data(), id: sessionDoc.id } as Record<string, unknown> };
+  }
   const context = await getOjtContext(survey);
   const participantIds = new Set((Array.isArray(context?.module.participant_ids) ? context!.module.participant_ids : []).map(String));
   const sessionsById = new Map((context?.sessions || []).map((session) => [String(session.id), session]));
@@ -127,7 +139,7 @@ router.get('/:token', async (req, res: Response) => {
   const participantDoc = ojtParticipant?.participantDoc || (publicSurvey.survey_type === 'ojt' ? null : await findParticipantForInitial(String(survey.training_session_id || ''), dni.data));
   if (!participantDoc) return void res.status(404).json({ message: 'No se encontro tu registro en esta capacitación. Verifica tu DNI.' });
   const participant = { id: participantDoc.id, ...participantDoc.data() } as Record<string, unknown>;
-  if (publicSurvey.survey_type === 'ojt' && !isEligibleForOjt(participant)) return void res.status(403).json({ message: 'Debes contar con nota final mayor o igual a 16 para acceder al acompañamiento OJT.' });
+  if (publicSurvey.survey_type === 'ojt' && publicSurvey.ojt_module_id && !isEligibleForOjt(participant)) return void res.status(403).json({ message: 'Debes contar con nota final mayor o igual a 16 para acceder al acompañamiento OJT.' });
   const existing = await adminDb.collection('responses').where('training_survey_id', '==', survey.id).get();
   if (existing.docs.some((doc) => String(doc.data().participant_id || '') === participantDoc.id || normalizeDocument(doc.data().dni) === normalizeDocument(dni.data))) return void res.status(409).json({ message: 'Ya registraste esta encuesta de satisfacción.' });
   const attendance = publicSurvey.survey_type === 'inicial' ? (await adminDb.collection('attendance').where('participant_id', '==', participantDoc.id).get()).docs.map((doc) => ({ id: doc.id, ...doc.data() })) : [];
@@ -174,8 +186,8 @@ router.post('/:token/responses', async (req, res: Response) => {
   const participantTrainerNames = Array.isArray(participantSession?.formador_ojt_nombres) ? participantSession.formador_ojt_nombres : [];
   const campaign = participantSession ? readString(participantSession, ['campaña', 'campana', 'campa�a']) : publicSurvey.campaña;
   const generation = participantSession ? readString(participantSession, ['generation_code', 'nombre_generacion']) : publicSurvey.codigo_generacion;
-  const trainerId = participantSession ? String(participantTrainerIds[0] || '') : publicSurvey.formador_id;
-  const trainerName = participantSession ? String(participantTrainerNames[0] || '') : publicSurvey.formador_nombre;
+  const trainerId = participantSession && publicSurvey.ojt_module_id ? String(participantTrainerIds[0] || '') : publicSurvey.formador_id;
+  const trainerName = participantSession && publicSurvey.ojt_module_id ? String(participantTrainerNames[0] || '') : publicSurvey.formador_nombre;
   const { dni, ...answers } = payload.data;
   const response = { id: `resp-${survey.id}-${participantDoc.id}`, training_survey_id: survey.id, survey_type: publicSurvey.survey_type, participant_id: participantDoc.id, dni, nombre_ejecutivo: `${participant.nombres || ''} ${participant.apellidos || ''}`.trim(), training_session_id: participantSession?.id || publicSurvey.training_session_id, ojt_module_id: publicSurvey.survey_type === 'ojt' ? publicSurvey.ojt_module_id : '', campaña: campaign, campana: campaign, codigo_generacion: generation, formador_id: trainerId, formador_nombre: trainerName, fecha_respuesta: new Date().toISOString(), ...answers, q9: 5, q10: 5, p1: payload.data.q1, p2: payload.data.q2, p3: payload.data.q3, p4: payload.data.q4, p5: payload.data.q5, p6: payload.data.q6, p7: payload.data.q7, p8: payload.data.q8, total_score: score.total_score, final_score_20: score.final_score_20, classification: score.classification, promedio_individual: Number((score.values.reduce((sum, value) => sum + value, 0) / 8).toFixed(2)) };
   try {

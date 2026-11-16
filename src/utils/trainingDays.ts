@@ -1,11 +1,10 @@
 import type { TrainingSession } from '../types';
 
 export const LEGACY_TRAINING_DAYS_COUNT = 5;
-export const CURRENT_TRAINING_DAYS_COUNT = 10;
+export const CURRENT_TRAINING_DAYS_COUNT = 5;
 
 export const getTrainingDaysCount = (session?: Pick<TrainingSession, 'training_days'> | null) => {
-  const value = Number(session?.training_days);
-  return value === LEGACY_TRAINING_DAYS_COUNT ? LEGACY_TRAINING_DAYS_COUNT : CURRENT_TRAINING_DAYS_COUNT;
+  return CURRENT_TRAINING_DAYS_COUNT;
 };
 
 export const getTrainingDays = (session?: Pick<TrainingSession, 'training_days'> | null) =>
@@ -24,6 +23,4 @@ export const getBusinessDayDate = (start: string, day: number) => {
 };
 
 export const getSessionDayDate = (session: Pick<TrainingSession, 'fecha_inicio' | 'training_days' | 'training_model'>, day: number) =>
-  session.training_model === 'split_ojt'
-    ? getBusinessDayDate(session.fecha_inicio, day)
-    : new Date(new Date(`${session.fecha_inicio}T12:00:00`).getTime() + (day - 1) * 86400000).toISOString().slice(0, 10);
+  getBusinessDayDate(session.fecha_inicio, day);

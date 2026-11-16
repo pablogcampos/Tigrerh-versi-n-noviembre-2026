@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { dataDb as adminDb } from '../hybridDb.js';
-import { hasCampaignOjt } from './trainingSchedule.js';
+import { hasLegacyCampaignOjt as hasCampaignOjt, isDayFiveSurveyEligible, isHiddenFormationCampaign } from './trainingSchedule.js';
 
 type RecordData = Record<string, any>;
 
@@ -54,6 +54,27 @@ export const buildInitialSurvey = (session: RecordData, createdById = '') => {
 
 export const ensureInitialSurvey = async (session: RecordData, createdById = '') =>
   createIfMissing('surveys', `srv-initial-${session.id}`, buildInitialSurvey(session, createdById));
+
+export const buildDayFiveOjtSurvey = (session: RecordData, createdById = '') => ({
+  ...buildInitialSurvey(session, createdById),
+  id: `srv-ojt-training-${session.id}`,
+  token: cleanToken(`OJT-TRAINING-${session.id}`),
+  survey_type: 'ojt',
+  estado: 'Habilitada',
+});
+
+export const ensureDayFiveOjtSurvey = async (
+  session: RecordData, participants: RecordData[], attendance: RecordData[], createdById = '',
+) => {
+  if (isHiddenFormationCampaign(session.campaña) || !participants.some((participant) =>
+    participant.training_session_id === session.id && isDayFiveSurveyEligible(participant, attendance))) return null;
+  const existing = await adminDb.collection('surveys').where('training_session_id', '==', session.id).get();
+  const trainingSurvey = existing.docs.find((doc) => doc.data().survey_type === 'ojt' && !doc.data().ojt_module_id);
+  if (trainingSurvey) return trainingSurvey.data();
+  const survey = buildDayFiveOjtSurvey(session, createdById);
+  // Never override a manually disabled link or a previously created survey.
+  return createIfMissing('surveys', survey.id, survey);
+};
 
 export const buildOjtSurvey = (session: RecordData, module: RecordData, createdById = '') => {
   const id = `srv-ojt-${module.id}`;

@@ -1,4 +1,5 @@
 import type { AttendanceRecord, OjtModule, Participant, SurveyResponse, TrainingSession, TrainingSurvey } from '../types';
+import { isDayFiveSurveyEligible } from '../../backend/src/services/trainingSchedule';
 import { isSurveyEligibleParticipant } from './trainingProgress';
 
 const normalizeDocument = (value: unknown) => String(value ?? '').trim().replace(/^0+(?=\d)/, '');
@@ -15,6 +16,9 @@ export const getSurveyParticipants = (
   sessions: TrainingSession[], modules: OjtModule[],
 ) => {
   if (survey.survey_type === 'operaciones') return [];
+  if (survey.survey_type === 'ojt' && !survey.ojt_module_id) {
+    return participants.filter((participant) => participant.training_session_id === survey.training_session_id && isDayFiveSurveyEligible(participant, attendance));
+  }
   if (survey.survey_type === 'ojt') {
     const module = modules.find((item) => item.id === survey.ojt_module_id);
     if (!module) return [];

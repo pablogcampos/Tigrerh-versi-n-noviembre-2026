@@ -53,7 +53,7 @@ import { permissions } from '../utils/permissions';
 import { filterSurveys } from '../utils/surveyFilters';
 import { findParticipantSurveyResponse, getSurveyParticipants } from '../utils/surveyCompletion';
 import { getSessionTrainerIds, getSessionTrainerNames, isSessionAssignedTrainer } from '../utils/trainingAssignments';
-import { hasCampaignOjt } from '../../backend/src/services/trainingSchedule';
+import { hasLegacyCampaignOjt as hasCampaignOjt } from '../../backend/src/services/trainingSchedule';
 
 const OPERATIONS_SUPERVISORS: Record<string, string[]> = {
   Culqi: ['Augusto Tello', 'Jerson Atoche', 'Romey Huiman', 'Johnny Weill', 'Christian Delgado', 'Rosel Guevara'],
@@ -68,7 +68,7 @@ const normalizeSurveyValue = (value?: string) =>
 
 const getSurveyContextKey = (survey: TrainingSurvey) => {
   const type = survey.survey_type || 'inicial';
-  if (type === 'ojt') return `ojt:${survey.ojt_module_id || survey.grupo_ojt || survey.codigo_generacion}`;
+  if (type === 'ojt') return `ojt:${survey.ojt_module_id || survey.training_session_id || survey.grupo_ojt || survey.codigo_generacion}`;
   if (type === 'operaciones') return `operaciones:${survey.training_session_id || `${normalizeSurveyValue(survey.campaña)}:${normalizeSurveyValue(survey.codigo_generacion)}:${normalizeSurveyValue(survey.subcampaña)}`}`;
   return `inicial:${survey.training_session_id || survey.codigo_generacion}`;
 };
@@ -202,13 +202,13 @@ export default function Encuestas({
     sessions.find((session) => session.id === survey.training_session_id);
 
   const getSurveyGenerationCode = (survey: TrainingSurvey) => {
-    if (survey.survey_type === 'ojt') return survey.grupo_ojt || ojtModules.find((module) => module.id === survey.ojt_module_id)?.nombre || survey.codigo_generacion;
+    if (survey.survey_type === 'ojt' && survey.ojt_module_id) return survey.grupo_ojt || ojtModules.find((module) => module.id === survey.ojt_module_id)?.nombre || survey.codigo_generacion;
     const session = getSurveySession(survey);
     return session?.generation_code || session?.nombre_generacion || survey.codigo_generacion;
   };
 
   const getSurveyCampaigns = (survey: TrainingSurvey) => {
-    if (survey.survey_type !== 'ojt') return [getSurveySession(survey)?.campaña || survey.campaña].filter(Boolean);
+    if (survey.survey_type !== 'ojt' || !survey.ojt_module_id) return [getSurveySession(survey)?.campaña || survey.campaña].filter(Boolean);
     const module = ojtModules.find((item) => item.id === survey.ojt_module_id);
     const campaigns = sessions.filter((session) => module?.generation_ids.includes(session.id) && hasCampaignOjt(session.campaña)).map((session) => session.campaña);
     return Array.from(new Set(campaigns.length ? campaigns : (survey.grupo_campañas || []).filter(hasCampaignOjt)));
@@ -217,6 +217,7 @@ export default function Encuestas({
   const getSurveyCampaignLabel = (survey: TrainingSurvey) => getSurveyCampaigns(survey).join(', ');
 
   const getOjtTrainingSessions = (survey: TrainingSurvey) => {
+    if (!survey.ojt_module_id) return sessions.filter((session) => session.id === survey.training_session_id);
     const module = ojtModules.find((item) => item.id === survey.ojt_module_id);
     return sessions.filter((session) => module?.generation_ids.includes(session.id) && hasCampaignOjt(session.campaña));
   };
@@ -343,7 +344,7 @@ export default function Encuestas({
     if (survey.estado !== 'Habilitada') return false;
     if (isAdmin) return true;
     if (survey.link_assigned_user_ids?.includes(currentUser.id)) return true;
-    if (survey.survey_type === 'ojt') {
+    if (survey.survey_type === 'ojt' && survey.ojt_module_id) {
       return ojtModules.find((module) => module.id === survey.ojt_module_id)?.formador_ojt_ids.includes(currentUser.id) || false;
     }
     const session = getSurveySession(survey);
@@ -673,9 +674,9 @@ export default function Encuestas({
   // Sessions that do not have an active satisfaction survey yet (to avoid duplicates)
   const sessionsWithoutSurvey = useMemo(() => {
     return sessions.filter(
-      sess => !surveys.some(srv => srv.training_session_id === sess.id && srv.estado !== 'Eliminada')
+      sess => !surveys.some(srv => srv.training_session_id === sess.id && (srv.survey_type || 'inicial') === createSurveyType && !srv.ojt_module_id && srv.estado !== 'Eliminada')
     );
-  }, [sessions, surveys]);
+  }, [sessions, surveys, createSurveyType]);
 
   // Currently selected session object in Create Modal
   const selectedSessionObj = useMemo(() => {
@@ -688,7 +689,7 @@ export default function Encuestas({
     const sess = sessions.find(s => s.id === sessId);
     if (sess) {
       const genCode = sess.generation_code || sess.nombre_generacion || `GR-${Math.floor(10 + Math.random() * 90)}`;
-      const cleanToken = genCode.trim().replace(/\s+/g, '-').toUpperCase();
+      const cleanToken = (createSurveyType === 'ojt' ? `OJT-TRAINING-${sess.id}` : genCode).trim().replace(/\s+/g, '-').toUpperCase();
       setTokenInput(cleanToken);
     } else {
       setTokenInput('');
@@ -702,36 +703,36 @@ export default function Encuestas({
 
   const handleCreateSurveySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (createSurveyType === 'inicial' && (!selectedSessionId || !selectedSessionObj)) return;
-    if (createSurveyType === 'ojt' && !selectedOjtModule) return;
+    if (createSurveyType !== 'operaciones' && (!selectedSessionId || !selectedSessionObj)) return;
+
     if (createSurveyType === 'operaciones' && (!operationsCampaign || operationsSupervisors.length === 0)) return;
 
     const sourceSession = selectedSessionObj || (selectedOjtModule ? sessions.find((session) => selectedOjtModule.generation_ids.includes(session.id)) : undefined);
     const ojtSessions = selectedOjtModule ? sessions.filter((session) => selectedOjtModule.generation_ids.includes(session.id) && hasCampaignOjt(session.campaña)) : [];
     const genCode = createSurveyType === 'operaciones'
       ? `${operationsCampaign}${operationsSubcampaign ? `-${operationsSubcampaign}` : ''}`
-      : createSurveyType === 'ojt' ? selectedOjtModule!.nombre : selectedSessionObj!.generation_code || selectedSessionObj!.nombre_generacion;
+      : selectedSessionObj!.generation_code || selectedSessionObj!.nombre_generacion;
     const cleanToken = tokenInput.trim() || `${createSurveyType === 'ojt' ? 'OJT-' : createSurveyType === 'operaciones' ? 'OPS-' : ''}${genCode}`.trim().replace(/\s+/g, '-').toUpperCase();
 
     const newSurvey: TrainingSurvey = {
-      id: `srv-${Math.random().toString(36).substring(2, 11)}`,
-      training_session_id: createSurveyType === 'inicial' ? selectedSessionId : '',
+      id: createSurveyType === 'ojt' ? `srv-ojt-training-${selectedSessionId}` : `srv-${Math.random().toString(36).substring(2, 11)}`,
+      training_session_id: createSurveyType !== 'operaciones' ? selectedSessionId : '',
       codigo_generacion: genCode,
-      campaña: createSurveyType === 'operaciones' ? operationsCampaign : createSurveyType === 'ojt' ? Array.from(new Set(ojtSessions.map((session) => session.campaña))).join(', ') : sourceSession?.campaña || '',
-      formador_id: createSurveyType === 'ojt' ? selectedOjtModule!.formador_ojt_ids[0] || '' : sourceSession?.formador_id || '',
-      formador_nombre: createSurveyType === 'ojt' ? selectedOjtModule!.formador_ojt_nombres.join(', ') : sourceSession?.formador_nombre || '',
+      campaña: createSurveyType === 'operaciones' ? operationsCampaign : sourceSession?.campaña || '',
+      formador_id: sourceSession?.formador_id || '',
+      formador_nombre: sourceSession?.formador_nombre || '',
       estado: surveyStatus,
       token: cleanToken,
       survey_type: createSurveyType,
-      ojt_module_id: createSurveyType === 'ojt' ? selectedOjtModule!.id : undefined,
-      grupo_ojt: createSurveyType === 'ojt' ? selectedOjtModule!.nombre : undefined,
-      grupo_generaciones: createSurveyType === 'ojt' ? selectedOjtModule!.generation_codes : undefined,
-      grupo_campañas: createSurveyType === 'ojt' ? Array.from(new Set(ojtSessions.map((session) => session.campaña))) : undefined,
+
+
+
+
       subcampaña: createSurveyType === 'operaciones' ? operationsSubcampaign : undefined,
       supervisor_nombres: createSurveyType === 'operaciones' ? operationsSupervisors : undefined,
       training_type: sourceSession?.tipo_capacitacion,
-      start_date: createSurveyType === 'ojt' ? selectedOjtModule!.fecha_inicio : sourceSession?.fecha_inicio,
-      end_date: createSurveyType === 'ojt' ? selectedOjtModule!.fecha_fin : sourceSession?.fecha_fin,
+      start_date: sourceSession?.fecha_inicio,
+      end_date: sourceSession?.fecha_fin,
       created_by: currentUser.nombre,
       created_at: new Date().toISOString()
     };
@@ -1789,7 +1790,7 @@ export default function Encuestas({
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-slate-500 font-extrabold">
-                    <th className="p-3">Grupo</th>
+                    <th className="p-3">{surveySection === 'ojt' ? 'Capacitación / Grupo histórico' : 'Generación'}</th>
                     <th className="p-3">Capacitaciones</th>
                     <th className="p-3">Formador</th>
                     <th className="p-3">Enlace</th>
@@ -2055,8 +2056,8 @@ export default function Encuestas({
               <div className="space-y-1">
                 <label className="text-slate-500 font-bold block">Selecciona Capacitación <span className="text-rose-500">*</span></label>
                 <select
-                  required={createSurveyType === 'inicial'}
-                  disabled={createSurveyType !== 'inicial'}
+                  required={createSurveyType !== 'operaciones'}
+                  disabled={createSurveyType === 'operaciones'}
                   value={selectedSessionId}
                   onChange={(e) => handleSelectSessionInModal(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs rounded-xl px-3 py-2.5 font-semibold outline-hidden focus:ring-1 focus:ring-fuchsia-500"
@@ -2073,7 +2074,7 @@ export default function Encuestas({
                 )}
               </div>
 
-              {createSurveyType === 'ojt' && <div className="space-y-1"><label className="text-slate-500 font-bold block">Grupo OJT <span className="text-rose-500">*</span></label><select required value={selectedOjtModuleId} onChange={(event) => { const id = event.target.value; setSelectedOjtModuleId(id); const group = ojtModules.find((module) => module.id === id); setTokenInput(group ? `OJT-${group.nombre}`.replace(/\s+/g, '-').toUpperCase() : ''); }} className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs rounded-xl px-3 py-2.5"><option value="">Selecciona...</option>{ojtModules.map((module) => <option key={module.id} value={module.id}>{module.nombre} · {module.formador_ojt_nombres.join(', ')}</option>)}</select></div>}
+
 
               {createSurveyType === 'operaciones' && <div className="space-y-3"><label className="block text-slate-500 font-bold">Campaña <select required value={operationsCampaign} onChange={(event) => { setOperationsCampaign(event.target.value); setOperationsSupervisors([]); }} className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5"><option value="">Selecciona...</option>{Object.keys(OPERATIONS_SUPERVISORS).map((campaign) => <option key={campaign}>{campaign}</option>)}</select></label><label className="block text-slate-500 font-bold">Subcampaña (opcional)<input value={operationsSubcampaign} onChange={(event) => setOperationsSubcampaign(event.target.value)} className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5" /></label><div className="space-y-1"><span className="text-slate-500 font-bold">Supervisores habilitados</span>{availableOperationsSupervisors.map((name) => <label key={name} className="flex gap-2 text-slate-700"><input type="checkbox" checked={operationsSupervisors.includes(name)} onChange={(event) => setOperationsSupervisors((current) => event.target.checked ? [...current, name] : current.filter((item) => item !== name))} />{name}</label>)}</div></div>}
 
@@ -2167,7 +2168,7 @@ export default function Encuestas({
                 </button>
                 <button
                   type="submit"
-                  disabled={(createSurveyType === 'inicial' ? !selectedSessionId : createSurveyType === 'ojt' ? !selectedOjtModuleId : !operationsCampaign || !operationsSupervisors.length) || isCreatingSurvey}
+                  disabled={(createSurveyType === 'inicial' ? !selectedSessionId : createSurveyType === 'ojt' ? !selectedSessionId : !operationsCampaign || !operationsSupervisors.length) || isCreatingSurvey}
                   className="flex-1 bg-gradient-to-r from-fuchsia-600 to-indigo-600 hover:opacity-95 text-white font-bold rounded-xl py-3 cursor-pointer transition-transform shadow-md disabled:opacity-50 disabled:cursor-not-allowed text-center"
                 >
                   {isCreatingSurvey ? 'Guardando...' : 'Guardar Encuesta'}

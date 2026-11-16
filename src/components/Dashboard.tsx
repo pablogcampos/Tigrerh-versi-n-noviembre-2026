@@ -40,7 +40,7 @@ import {
   FileUp
 } from 'lucide-react';
 import { TrainingSession, Participant, AttendanceRecord, OperationConfirmation, AttendanceReopenRequest, User as AppUser } from '../types';
-import { BPO_CAMPAIGNS } from '../constants/campaigns';
+import { FORMATION_CAMPAIGNS } from '../constants/campaigns';
 import MonthlyTrainingView from './MonthlyTrainingView';
 import { getSessionTrainerIds, isSessionAssignedTrainer } from '../utils/trainingAssignments';
 import CampaignMultiSelect from './CampaignMultiSelect';
@@ -196,7 +196,7 @@ export default function Dashboard({
   const filteredParticipantIds = useMemo(() => new Set(filteredParticipants.map(p => p.id)), [filteredParticipants]);
   const finalDayByParticipant = useMemo(() => {
     const finalDayBySession = new Map(filteredSessions.map((session) => [session.id, getSessionFinalTrainingDay(session)]));
-    return new Map(filteredParticipants.map((participant) => [participant.id, finalDayBySession.get(participant.training_session_id) || 10] as const));
+    return new Map(filteredParticipants.map((participant) => [participant.id, finalDayBySession.get(participant.training_session_id) || 5] as const));
   }, [filteredSessions, filteredParticipants]);
   const finalDesertionLabel = useMemo(() => {
     const days = new Set(filteredSessions.map(getSessionFinalTrainingDay));
@@ -223,7 +223,7 @@ export default function Dashboard({
     const totalCargados = filteredParticipants.length;
     const phase = calculatePhaseMetrics(filteredParticipantIds, filteredAttendance, filteredConfirmations, finalDayByParticipant);
     const pendientesAlta = filteredParticipants.filter(p => p.estado_final === 'Pendiente de alta').length;
-    const ojtParticipants = filteredParticipants.filter((participant) => phase.ojtParticipantIds.has(participant.id));
+    const ojtParticipants = filteredParticipants.filter((participant) => phase.d5Ids.has(participant.id));
     const aptos = ojtParticipants.filter(p => p.resultado_formacion === 'Apto').length;
     const noAptos = ojtParticipants.filter(p => p.resultado_formacion === 'No apto').length;
     const totalConResultado = aptos + noAptos;
@@ -243,7 +243,7 @@ export default function Dashboard({
       asistieronDia6: phase.d6Ids.size,
       asistieronDia10: phase.d10Ids.size,
       desercionesFinales: phase.desercionesFinales,
-      altasConfirmadas: phase.altasFinalIds.size,
+      altasConfirmadas: filteredParticipants.filter((p) => phase.altasFinalIds.has(p.id) && p.resultado_formacion === 'Apto').length,
       ojtParticipantIds: phase.ojtParticipantIds,
       pendientesAlta,
       aptos,
@@ -269,15 +269,15 @@ export default function Dashboard({
       { name: 'Asist. Día 1', valor: metrics.asistieronDia1, fill: '#3b82f6' },
       { name: 'Inicio Cap. (D2)', valor: metrics.asistieronDia2, fill: '#06b6d4' },
       { name: 'Cierre Cap. (D5)', valor: metrics.asistieronDia5, fill: '#10b981' },
-      { name: 'Inicio OJT (D6)', valor: metrics.asistieronDia6, fill: '#8b5cf6' },
-      { name: 'Cierre OJT (D10)', valor: metrics.asistieronDia10, fill: '#a855f7' },
+
+
       { name: 'Altas', valor: metrics.altasConfirmadas, fill: '#ec4899' },
     ];
   }, [metrics]);
 
   // 2. Comparativo por Campaña
   const campañaData = useMemo(() => {
-    const campaigns = filterCampañas.length === 0 ? BPO_CAMPAIGNS : filterCampañas;
+    const campaigns = filterCampañas.length === 0 ? FORMATION_CAMPAIGNS : filterCampañas;
     return campaigns.map(camp => {
       const campSessions = filteredSessions.filter(s => s.campaña === camp);
       const campSessionIds = new Set(campSessions.map(s => s.id));
@@ -292,7 +292,7 @@ export default function Dashboard({
         'Asist. Día 1': phase.d1Ids.size,
         'Cierre Capacitación': phase.d5Ids.size,
         'Cierre OJT': phase.d10Ids.size,
-        Altas: phase.altasFinalIds.size,
+        Altas: filteredParticipants.filter((p) => phase.altasFinalIds.has(p.id) && p.resultado_formacion === 'Apto').length,
         'Retención Capacitación %': phase.retencionCapacitacion,
         'Retención OJT %': phase.retencionOjt,
         'Deserción Final %': phase.desercionFinalRate,
@@ -315,8 +315,8 @@ export default function Dashboard({
         Asignados: tParts.length,
         'Cierre Capacitación': phase.d5Ids.size,
         'Cierre OJT': phase.d10Ids.size,
-        Altas: phase.altasFinalIds.size,
-        'Efectividad %': phase.retencionOjt,
+        Altas: filteredParticipants.filter((p) => phase.altasFinalIds.has(p.id) && p.resultado_formacion === 'Apto').length,
+        'Efectividad %': phase.retencionCapacitacion,
       };
     });
   }, [filteredSessions, visibleTrainers, filteredParticipants, filteredAttendance, filteredConfirmations, finalDayByParticipant]);
@@ -331,7 +331,7 @@ export default function Dashboard({
       .forEach((record) => {
         if (
           record.dia >= 1 &&
-          record.dia <= 10 &&
+          record.dia <= 5 &&
           isDesertionAttendance(record.estado_asistencia) &&
           !firstDesertionByParticipant.has(record.participant_id)
         ) {
@@ -353,7 +353,7 @@ export default function Dashboard({
       .forEach((record) => {
         if (
           record.dia >= 1 &&
-          record.dia <= 10 &&
+          record.dia <= 5 &&
           isDesertionAttendance(record.estado_asistencia) &&
           !firstDesertionByParticipant.has(record.participant_id)
         ) {
@@ -445,7 +445,7 @@ export default function Dashboard({
       const phase = calculatePhaseMetrics(sessionPartIds, filteredAttendance, filteredConfirmations, finalDayByParticipant);
       bucket['Cierre Capacitación'] += phase.d5Ids.size;
       bucket['Cierre OJT'] += phase.d10Ids.size;
-      bucket.Altas += phase.altasFinalIds.size;
+      bucket.Altas += filteredParticipants.filter((p) => phase.altasFinalIds.has(p.id) && p.resultado_formacion === 'Apto').length;
     });
 
     return Array.from(weekBuckets.values())
@@ -589,7 +589,7 @@ export default function Dashboard({
       {/* KPI Cards Grid */}
       {(
       <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4" id="kpi-grid">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="kpi-grid">
         {/* Card 1 */}
         <div className="glass-card glass-card-hover rounded-2xl p-5 relative overflow-hidden">
           <div className="absolute inset-x-0 top-0 h-1 bg-indigo-500"></div>
@@ -622,23 +622,6 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Card 3 */}
-        <div className="glass-card glass-card-hover rounded-2xl p-5 relative overflow-hidden">
-          <div className="absolute inset-x-0 top-0 h-1 bg-fuchsia-500"></div>
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-slate-400 font-medium text-xs uppercase tracking-wider">Retención OJT</p>
-              <h3 className="text-slate-900 text-3xl font-black mt-1">{metrics.retencionOjt}%</h3>
-              <p className="text-xs text-fuchsia-600 font-medium mt-1">
-                {metrics.asistieronDia10} de {metrics.asistieronDia6} llegaron al Día 10
-              </p>
-            </div>
-            <div className="bg-fuchsia-50 rounded-xl p-2.5 text-fuchsia-600 border border-fuchsia-100">
-              <Award className="w-5 h-5" />
-            </div>
-          </div>
-        </div>
-
         {/* Card 4 */}
         <div className="glass-card glass-card-hover rounded-2xl p-5 relative overflow-hidden">
           <div className="absolute inset-x-0 top-0 h-1 bg-rose-500"></div>
@@ -663,7 +646,7 @@ export default function Dashboard({
             <div>
               <p className="text-slate-400 font-medium text-xs uppercase tracking-wider">Altas</p>
               <h3 className="text-slate-900 text-3xl font-black mt-1">{metrics.altasConfirmadas}</h3>
-              <p className="text-xs text-emerald-600 font-medium mt-1">Postulantes únicos con Asistió en su día final</p>
+              <p className="text-xs text-emerald-600 font-medium mt-1">Postulantes únicos con Asistió y Apto en D5</p>
             </div>
             <div className="bg-emerald-50 rounded-xl p-2.5 text-emerald-600 border border-emerald-100">
               <UserCheck className="w-5 h-5" />
@@ -746,16 +729,16 @@ export default function Dashboard({
                 <Bar dataKey="Cargados" fill="#818cf8" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="Asist. Día 1" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="Cierre Capacitación" fill="#10b981" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="Cierre OJT" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+
                 <Bar dataKey="Altas" fill="#ec4899" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <div className="grid grid-cols-4 gap-2 mt-2 pt-3 border-t border-slate-100">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2 pt-3 border-t border-slate-100">
             {campañaData.map(c => (
               <div key={c.name} className="text-center">
                 <p className="text-[10px] text-slate-500 font-semibold uppercase truncate">{c.name}</p>
-                <p className="text-xs font-bold text-slate-700">OJT: {c['Retención OJT %']}%</p>
+                <p className="text-xs font-bold text-slate-700">Capacitación: {c['Retención Capacitación %']}%</p>
               </div>
             ))}
           </div>
@@ -770,12 +753,12 @@ export default function Dashboard({
               <UserX className="text-rose-500 w-4.5 h-4.5" />
               Deserciones por Motivo
             </h3>
-            <span className="text-slate-400 text-xs font-mono">Día 1 a Día 10</span>
+            <span className="text-slate-400 text-xs font-mono">Día 1 a Día 5</span>
           </div>
           <div className="flex-1 min-h-[220px] flex items-center justify-center">
             {desercionesPorMotivo.length === 0 ? (
               <div className="text-center text-slate-400 py-10">
-                <p className="text-sm">No se registran deserciones entre el Día 1 y el Día 10</p>
+                <p className="text-sm">No se registran deserciones entre el Día 1 y el Día 5</p>
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>

@@ -3,7 +3,7 @@ import type { AttendanceRecord, Participant } from '../types';
 const PRESENT_ATTENDANCE = new Set(['Asistio', 'Asisti�', 'Asistió', 'Tardanza']);
 const DESERTION_ATTENDANCE = new Set(['Desisti�', 'Desistió', 'Baja']);
 const DESERTION_FINAL_STATES = new Set(['Desisti�', 'Desistió', 'No asisti�', 'No asistió']);
-export const REQUIRED_TRAINING_DAYS = 10;
+export const REQUIRED_TRAINING_DAYS = 5;
 export const REQUIRED_SURVEY_ATTENDANCE_PERCENT = 80;
 export const SURVEY_ELIGIBILITY_DAY = 5;
 
@@ -15,7 +15,7 @@ export const getPresentAttendanceDays = (
     attendance
       .filter(
         (record) =>
-          record.participant_id === participantId &&
+          record.participant_id === participantId && record.dia >= 1 && record.dia <= 5 &&
           PRESENT_ATTENDANCE.has(record.estado_asistencia),
       )
       .map((record) => record.dia),
@@ -38,7 +38,7 @@ export const hasTrainingDropout = (
   DESERTION_FINAL_STATES.has(participant.estado_final) ||
   attendance.some(
     (record) =>
-      record.participant_id === participant.id &&
+      record.participant_id === participant.id && record.dia >= 1 && record.dia <= 5 &&
       DESERTION_ATTENDANCE.has(record.estado_asistencia),
   );
 

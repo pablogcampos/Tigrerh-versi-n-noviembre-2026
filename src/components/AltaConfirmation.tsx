@@ -21,6 +21,7 @@ import {
   Undo
 } from 'lucide-react';
 import { TrainingSession, Participant, AttendanceRecord, OperationConfirmation, AltaStatus, User as AppUser } from '../types';
+import { isDayFiveSurveyEligible } from '../../backend/src/services/trainingSchedule';
 import { permissions } from '../utils/permissions';
 import { isSessionAssignedTrainer } from '../utils/trainingAssignments';
 
@@ -141,10 +142,8 @@ export default function AltaConfirmation({
       const finalAltaStatus = draft?.estado_alta || p.estado_alta || (conf ? conf.estado_alta : 'Pendiente de alta');
       const hasAltaRecord = Boolean(conf || draft || p.estado_alta);
       const session = sessionMap[p.training_session_id];
-      const completedTraining = session?.training_model === 'split_ojt'
-        ? !!session.ojt_module_id && attendance.some((record) => record.participant_id === p.id && record.dia === 10 && ['Asistió', 'Tardanza', 'Feriado'].includes(record.estado_asistencia))
-        : p.resultado_formacion === 'Apto' || p.estado_final === 'Pendiente de alta' || p.estado_final === 'Alta confirmada';
-      const blockedByTraining = (session?.training_model === 'split_ojt' ? p.resultado_formacion_ojt === 'No apto' : p.resultado_formacion === 'No apto') || p.estado_final === 'Desistió' || p.estado_final === 'No asistió';
+      const completedTraining = isDayFiveSurveyEligible(p, attendance);
+      const blockedByTraining = p.resultado_formacion === 'No apto' || p.estado_final === 'Desistió' || p.estado_final === 'No asistió';
 
       if (!completedTraining && !hasAltaRecord) return false;
       if (blockedByTraining && !hasAltaRecord) return false;

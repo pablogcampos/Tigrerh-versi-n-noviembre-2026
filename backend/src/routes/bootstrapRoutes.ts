@@ -6,6 +6,9 @@ import {
   requireAuth,
 } from '../utils/authMiddleware.js';
 
+import { isHiddenFormationCampaign, getInitialTrainingEndDate } from '../services/trainingSchedule.js';
+import { ensureDayFiveOjtSurvey } from '../services/surveyAutomationService.js';
+
 const router = Router();
 const collectionCache = new Map<string, {
   expiresAt: number;
@@ -122,7 +125,7 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response) =>
       allConfirmations,
       allReopens,
       allLogs,
-      allSurveys,
+      loadedSurveys,
       allResponses,
       allOjtModules,
     ] = await Promise.all([
@@ -138,13 +141,16 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response) =>
       readCollection('ojt_modules', trainingProgressOnly),
     ]);
 
-    const sessions = canSeeAllSessions
+    const allSurveys: Array<Record<string, unknown>> = [...loadedSurveys];
+    const scopedSessions = canSeeAllSessions
       ? allSessions
       : allSessions.filter((session) =>
           user.rol === 'Formador'
             ? isAssignedTrainer(session, user.uid)
             : session.reclutador_id === user.uid,
         );
+    const sessions: Array<Record<string, unknown>> = scopedSessions.filter((session) => !isHiddenFormationCampaign(session.campaña))
+      .map((session) => ({ ...session, training_days: 5, fecha_fin: getInitialTrainingEndDate(session.fecha_inicio) }));
     const sessionIds = new Set(sessions.map((session) => String(session.id)));
     const participants = allParticipants.filter((participant) =>
       sessionIds.has(String(participant.training_session_id)),
@@ -155,12 +161,20 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response) =>
     if (trainingProgressOnly) {
       res.set('Cache-Control', 'no-store').json({
         sessions, participants,
-        attendance: allAttendance.filter((record) => sessionIds.has(String(record.training_session_id)) || participantIds.has(String(record.participant_id))),
+        attendance: allAttendance.filter((record) => Number(record.dia) >= 1 && Number(record.dia) <= 5 && sessionIds.has(String(record.training_session_id))),
         confirmations: allConfirmations.filter((record) => sessionIds.has(String(record.training_session_id))),
         ojt_modules: allOjtModules.filter((module) => user.rol === 'Administrador' ||
           (Array.isArray(module.generation_ids) && module.generation_ids.some((id) => sessionIds.has(String(id))))),
       });
       return;
+    }
+    if (!surveyProgressOnly) {
+      const existingTrainingSurveys = new Set(allSurveys.filter((s) => s.survey_type === 'ojt' && !s.ojt_module_id).map((s) => String(s.training_session_id)));
+      for (const session of sessions) {
+        if (existingTrainingSurveys.has(String(session.id))) continue;
+        const survey = await ensureDayFiveOjtSurvey(session, participants, allAttendance, user.uid);
+        if (survey) allSurveys.push(survey);
+      }
     }
     const accessibleOjtModuleIds = new Set(
       allOjtModules
@@ -252,8 +266,7 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response) =>
       participants,
       attendance: allAttendance.filter(
         (record) =>
-          sessionIds.has(String(record.training_session_id)) ||
-          participantIds.has(String(record.participant_id)),
+          Number(record.dia) >= 1 && Number(record.dia) <= 5 && sessionIds.has(String(record.training_session_id)),
       ),
       confirmations: allConfirmations.filter((record) =>
         sessionIds.has(String(record.training_session_id)),

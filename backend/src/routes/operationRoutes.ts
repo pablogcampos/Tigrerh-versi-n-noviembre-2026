@@ -4,9 +4,9 @@ import { z } from 'zod';
 import { adminStorage } from '../firebaseAdmin.js';
 import { dataDb as adminDb, DELETE_FIELD } from '../hybridDb.js';
 import { updateParticipantDocument } from '../services/participantDocumentService.js';
-import { hasCampaignOjt, isInitialOnlyCampaign } from '../services/trainingSchedule.js';
+import { hasCampaignOjt, isInitialOnlyCampaign, isDayFiveSurveyEligible } from '../services/trainingSchedule.js';
 import { isAttendanceMinutesOpen, peruAttendanceMinutes, isOperationalOjtClosed } from '../services/attendancePolicy.js';
-import { ensureOjtSurvey, ensureOperationsSurvey, isEligibleForOjt } from '../services/surveyAutomationService.js';
+import { ensureDayFiveOjtSurvey, ensureOperationsSurvey } from '../services/surveyAutomationService.js';
 import {
   deleteCvFromGoogleDrive,
   downloadCvFromGoogleDrive,
@@ -136,58 +136,11 @@ const syncOjtSurveyForEligibleParticipant = async (
   session: Record<string, unknown> | undefined,
   userId: string,
 ) => {
-  if (!session?.ojt_module_id || !hasCampaignOjt(session.campaña) || !isEligibleForOjt(participant)) return;
-
-  const participantId = String(participant.id || '');
+  if (!session || !participant.id) return;
   const sessionId = String(session.id || participant.training_session_id || '');
-  if (!participantId || !sessionId || String(participant.estado_final || '') === 'Desistió') return;
-
-  const attendanceSnapshot = await adminDb.collection('attendance').where('participant_id', '==', participantId).get();
-  const initialAttendance = attendanceSnapshot.docs
-    .map((document) => document.data())
-    .filter((record) => String(record.training_session_id || '') === sessionId && Number(record.dia) >= 1 && Number(record.dia) <= 5);
-  const completedInitialAttendance = [1, 2, 3, 4, 5].every((day) =>
-    initialAttendance.some((record) =>
-      Number(record.dia) === day &&
-      ['Asistió', 'Tardanza', 'Faltó', 'Descanso médico', 'Feriado'].includes(String(record.estado_asistencia || ''))));
-  if (!completedInitialAttendance) return;
-
-  const moduleRef = adminDb.collection('ojt_modules').doc(String(session.ojt_module_id));
-  const module = await moduleRef.get();
-  if (!module.exists) return;
-  const moduleData = { id: module.id, ...module.data() } as Record<string, unknown>;
-  const participantIds = new Set((Array.isArray(moduleData.participant_ids) ? moduleData.participant_ids : []).map(String));
-  if (!participantIds.has(participantId)) {
-    await moduleRef.set({
-      participant_ids: [...participantIds, participantId],
-      updated_at: new Date().toISOString(),
-    }, { merge: true });
-  }
-
-  const timestamp = new Date().toISOString();
-  const existingDays = new Set(attendanceSnapshot.docs
-    .map((document) => document.data())
-    .filter((record) => String(record.training_session_id || '') === sessionId)
-    .map((record) => Number(record.dia)));
-  for (let day = 6; day <= 10; day += 1) {
-    if (existingDays.has(day)) continue;
-    try {
-      await adminDb.collection('attendance').doc(`ojt-${participantId}-${day}`).create({
-      id: `ojt-${participantId}-${day}`,
-      participant_id: participantId,
-      training_session_id: sessionId,
-      dia: day,
-      fecha: getBusinessDay(session.fecha_inicio, day),
-      estado_asistencia: 'Seleccionar',
-      registrado_por: userId,
-      fecha_registro: timestamp,
-      });
-    } catch (error) {
-      // A concurrent save must win over preparation of an empty OJT day.
-      if ((error as { code?: number | string }).code !== 6 && (error as { code?: string }).code !== 'already-exists') throw error;
-    }
-  }
-  await ensureOjtSurvey(session, moduleData, userId);
+  const attendance = await adminDb.collection('attendance').where('participant_id', '==', participant.id).get();
+  await ensureDayFiveOjtSurvey({ ...session, id: sessionId }, [participant],
+    attendance.docs.map((doc) => doc.data()), userId);
 };
 
 const getBusinessDay = (start: unknown, day: number) => {
@@ -211,6 +164,7 @@ const canAccessParticipant = async (req: AuthenticatedRequest, participantId: st
 };
 
 const attendanceWriteError = async (req: AuthenticatedRequest, sessionId: string, session: Record<string, unknown>, records: Record<string, unknown>[]) => {
+  if (records.some((record) => !Number.isInteger(Number(record.dia)) || Number(record.dia) < 1 || Number(record.dia) > 5)) return 'La capacitacion comprende solamente D1-D5.';
   if (req.user!.rol === 'Administrador') return null;
   if (records.some((record) => Number(record.dia) >= 6)) {
     const module = session.ojt_module_id ? await adminDb.collection('ojt_modules').doc(String(session.ojt_module_id)).get() : null;
@@ -461,15 +415,13 @@ router.put(
     if (parsed.data.estado_alta === 'Alta confirmada') {
       const session = await adminDb.collection('sessions').doc(parsed.data.training_session_id).get();
       sessionData = session.data();
-      if (sessionData?.training_model === 'split_ojt' && !isInitialOnlyCampaign(sessionData?.campaña)) {
-        const participant = await adminDb.collection('participants').doc(String(parsed.data.participant_id || '')).get();
-        const dayTen = await adminDb.collection('attendance').where('participant_id', '==', parsed.data.participant_id).get();
-        if (!session.data()?.ojt_module_id || participant.data()?.training_session_id !== parsed.data.training_session_id ||
-          !dayTen.docs.some((record) => record.data().training_session_id === parsed.data.training_session_id &&
-            Number(record.data().dia) === 10 && ['Asistió', 'Tardanza', 'Feriado'].includes(record.data().estado_asistencia))) {
-          res.status(409).json({ message: 'El postulante aun no culmina el OJT.' });
-          return;
-        }
+      const participant = await adminDb.collection('participants').doc(String(parsed.data.participant_id || '')).get();
+      const records = await adminDb.collection('attendance').where('participant_id', '==', parsed.data.participant_id).get();
+      const alreadyConfirmed = participant.data()?.estado_alta === 'Alta confirmada';
+      if (!alreadyConfirmed && (participant.data()?.training_session_id !== parsed.data.training_session_id ||
+          !isDayFiveSurveyEligible({ ...participant.data(), id: participant.id }, records.docs.map((doc) => doc.data())))) {
+        res.status(409).json({ message: 'El alta requiere asistencia D5 y resultado Apto.' });
+        return;
       }
     }
 
@@ -544,6 +496,9 @@ router.put(
       if (isInitialTrainer(sessionData, req.user!.uid)) {
         allowed.evaluacion_nota = parsed.data.evaluacion_nota;
         allowed.observacion_evaluacion = parsed.data.observacion_evaluacion;
+        allowed.resultado_formacion = parsed.data.resultado_formacion;
+        allowed.comentario_aptitud = parsed.data.comentario_aptitud;
+        allowed.motivo_no_apt = parsed.data.motivo_no_apt;
         if (sessionData?.training_model === 'split_ojt') {
           allowed.resultado_formacion = parsed.data.resultado_formacion;
           allowed.comentario_aptitud = parsed.data.comentario_aptitud;

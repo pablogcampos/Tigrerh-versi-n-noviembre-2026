@@ -2091,7 +2091,7 @@ export default function App() {
   // --- Views Router Handler ---
   const handleViewAttendance = (sessionId: string, phase: 'initial' | 'ojt' = 'initial') => {
     setSelectedSessionId(sessionId);
-    setAttendancePhase(phase);
+    setAttendancePhase('initial');
     setCurrentView('asistencia');
   };
 

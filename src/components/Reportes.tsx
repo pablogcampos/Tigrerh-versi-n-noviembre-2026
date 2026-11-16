@@ -15,7 +15,7 @@ import {
   BookOpen
 } from 'lucide-react';
 import { TrainingSession, Participant, AttendanceRecord, OperationConfirmation, User as AppUser } from '../types';
-import { BPO_CAMPAIGNS } from '../constants/campaigns';
+import { FORMATION_CAMPAIGNS } from '../constants/campaigns';
 import { matchesReportDateRange } from '../utils/reportDateRange';
 
 interface ReportesProps {
@@ -182,7 +182,7 @@ export default function Reportes({
     } else if (reportType === 'asistencia') {
       headers = [
         'DNI', 'Nombres', 'Apellidos', 'Campaña', 'Generación',
-        ...Array.from({ length: 10 }, (_, index) => `Día ${index + 1}`),
+        ...Array.from({ length: 5 }, (_, index) => `Día ${index + 1}`),
         'Asistencias', 'Tardanzas', 'Faltas', 'Retiros', 'Resultado Final', 'Observación'
       ];
       rows = reportData.map(p => {
@@ -194,7 +194,7 @@ export default function Reportes({
           p.apellidos,
           s?.campaña || '',
           s?.nombre_generacion || '',
-          ...Array.from({ length: 10 }, (_, index) => getAttendanceStatus(p, index + 1)),
+          ...Array.from({ length: 5 }, (_, index) => getAttendanceStatus(p, index + 1)),
           String(counts.asistio),
           String(counts.tardanza),
           String(counts.falto),
@@ -395,7 +395,7 @@ export default function Reportes({
               className="w-full glass-input text-slate-700 rounded-xl px-3 py-2.5 text-xs outline-hidden"
             >
               <option value="todos">Todas las Campañas</option>
-              {BPO_CAMPAIGNS.map((item) => <option key={item} value={item}>{item}</option>)}
+              {FORMATION_CAMPAIGNS.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </div>
 
@@ -477,7 +477,7 @@ export default function Reportes({
                     <th className="p-3">DNI</th>
                     <th className="p-3">Candidato</th>
                     <th className="p-3">Campaña / Generación</th>
-                    {Array.from({ length: 10 }, (_, index) => (
+                    {Array.from({ length: 5 }, (_, index) => (
                       <th key={`day-header-${index + 1}`} className="p-3 text-center whitespace-nowrap">Día {index + 1}</th>
                     ))}
                     <th className="p-3 text-center">Asistencias</th>
@@ -552,7 +552,7 @@ export default function Reportes({
                             <span className="font-semibold">{s?.nombre_generacion}</span>
                             <span className="block text-[10px] text-slate-400">{s?.campaña}</span>
                           </td>
-                          {Array.from({ length: 10 }, (_, index) => (
+                          {Array.from({ length: 5 }, (_, index) => (
                             <td key={`${p.id}-day-${index + 1}`} className="p-3 text-center whitespace-nowrap">
                               {getAttendanceStatus(p, index + 1)}
                             </td>

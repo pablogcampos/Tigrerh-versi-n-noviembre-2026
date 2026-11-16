@@ -42,3 +42,5 @@ export const getCampaignPrefix = (campaign: string) =>
     .slice(0, 3)
     .toUpperCase() ||
   'BPO';
+// Formation no longer operates Equifax; other areas retain their catalog.
+export const FORMATION_CAMPAIGNS = BPO_CAMPAIGNS.filter((campaign) => campaign !== 'Equifax');

@@ -7,6 +7,15 @@ import {
   requireRole,
 } from '../utils/authMiddleware.js';
 
+import { isDayFiveSurveyEligible, isHiddenFormationCampaign } from '../services/trainingSchedule.js';
+
+const hasEligibleDayFiveParticipant = async (sessionId: string) => {
+  const session = await adminDb.collection('sessions').doc(sessionId).get();
+  if (!session.exists || isHiddenFormationCampaign(session.data()?.campaña)) return false;
+  const participants = await adminDb.collection('participants').where('training_session_id', '==', sessionId).get();
+  const attendance = await adminDb.collection('attendance').where('training_session_id', '==', sessionId).get();
+  return participants.docs.some((doc) => isDayFiveSurveyEligible({ ...doc.data(), id: doc.id }, attendance.docs.map((record) => record.data())));
+};
 const router = Router();
 const surveyStatusSchema = z.enum(['Borrador', 'Habilitada', 'Deshabilitada', 'Cerrada', 'Eliminada']);
 const surveySchema = z.object({
@@ -47,7 +56,7 @@ router.post(
       return;
     }
     const survey = { ...parsed.data, survey_type: parsed.data.survey_type || 'inicial', token: normalizeSurveyToken(parsed.data.token), created_by_id: req.user!.uid };
-    if (survey.survey_type === 'inicial') {
+    if (survey.survey_type === 'inicial' || survey.survey_type === 'ojt') {
       if (!survey.training_session_id) {
         res.status(400).json({ message: 'La encuesta inicial requiere una capacitación vinculada.' });
         return;
@@ -59,13 +68,13 @@ router.post(
       }
     }
     if (survey.survey_type === 'ojt') {
-      if (!survey.ojt_module_id) {
-        res.status(400).json({ message: 'La encuesta OJT requiere un grupo OJT vinculado.' });
+      if (survey.ojt_module_id) {
+        res.status(400).json({ message: 'Las nuevas encuestas OJT se vinculan a una capacitacion.' });
         return;
       }
-      const module = await adminDb.collection('ojt_modules').doc(survey.ojt_module_id).get();
-      if (!module.exists) {
-        res.status(404).json({ message: 'El grupo OJT vinculado no existe.' });
+      survey.id = `srv-ojt-training-${survey.training_session_id}`;
+      if (survey.estado === 'Habilitada' && !(await hasEligibleDayFiveParticipant(survey.training_session_id))) {
+        res.status(409).json({ message: 'Se requiere un participante Apto con asistencia en D5.' });
         return;
       }
     }
@@ -82,7 +91,7 @@ router.post(
       const item = doc.data();
       if (item.estado === 'Eliminada') return false;
       if ((item.survey_type || 'inicial') !== survey.survey_type) return false;
-      if (survey.survey_type === 'ojt') return item.ojt_module_id === survey.ojt_module_id;
+      if (survey.survey_type === 'ojt') return !item.ojt_module_id && item.training_session_id === survey.training_session_id;
       if (survey.survey_type === 'operaciones') return item.campaña === survey.campaña && String(item.subcampaña || '') === String(survey.subcampaña || '');
       return item.training_session_id === survey.training_session_id;
     });
@@ -151,7 +160,7 @@ router.patch(
     const survey = surveyDoc.data();
     if (req.user!.rol === 'Reclutador') {
       const type = survey?.survey_type || 'inicial';
-      const sessionIds = type === 'ojt'
+      const sessionIds = type === 'ojt' && survey?.ojt_module_id
         ? ((await adminDb.collection('ojt_modules').doc(String(survey?.ojt_module_id || '')).get()).data()?.generation_ids || [])
         : [String(survey?.training_session_id || '')];
       const linkedSessions = await Promise.all(sessionIds.map((id: unknown) => adminDb.collection('sessions').doc(String(id)).get()));
@@ -163,6 +172,11 @@ router.patch(
       }
     }
 
+    if (survey?.survey_type === 'ojt' && !survey.ojt_module_id && parsed.data.status === 'Habilitada' &&
+        !(await hasEligibleDayFiveParticipant(String(survey.training_session_id)))) {
+      res.status(409).json({ message: 'Se requiere un participante Apto con asistencia en D5.' });
+      return;
+    }
     const requestedToken = normalizeSurveyToken(
       parsed.data.changes?.token || survey?.token || survey?.codigo_generacion,
     );

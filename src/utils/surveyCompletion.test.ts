@@ -139,7 +139,17 @@ test('public survey routes: availability, duplicates and anonymous operations', 
     }
     assert.equal(store.responses.size, 2);
   });
-  await t.test('survey synchronization reads late answers and preserves the existing user scope', async () => {
+  await t.test('survey synchronization reads late answers and preserves the existing user scope', async (subtest) => {
+    const { getPostgresPool, closePostgresPool } = await import('../../backend/src/postgres');
+    const previousUrl = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = 'postgres://test:test@localhost:5432/test';
+    subtest.mock.method(getPostgresPool(), 'query', async () => ({
+      rows: [...store.attendance.values()].map((record) => ({ document_id: record.id, payload: record })),
+    }) as any);
+    subtest.after(async () => {
+      await closePostgresPool();
+      if (previousUrl === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = previousUrl;
+    });
     const backendRequire = createRequire(new URL('../../backend/package.json', import.meta.url));
     const { initializeApp, deleteApp } = backendRequire('firebase-admin/app');
     const app = initializeApp({ projectId: 'survey-isolated-test' });

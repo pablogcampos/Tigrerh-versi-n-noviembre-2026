@@ -18,7 +18,7 @@ test('Attendance loads fresh summaries for both roles and evidence only on autho
   };
   const record = { id: 'a', training_session_id: 's', participant_id: 'p', dia: 1, estado_asistencia: 'Asistió', evidencia_imagen: 'data:image/png;base64,TEST', evidencia_nombre: 'test.png', motivo_desercion: 'Herramientas' };
   const collections: Record<string, any[]> = {
-    users: [], sessions: [{ id: 's', formador_id: 'trainer' }],
+    users: [], sessions: [{ id: 's', formador_id: 'trainer', campaña: 'Culqi', training_days: 10, fecha_inicio: '2026-11-13' }, { id: 'eq', campaña: 'Equifax', formador_id: 'trainer' }],
     participants: [{ id: 'p', training_session_id: 's' }], attendance: [record],
   };
   const doc = (item: any) => ({ id: item?.id, exists: Boolean(item), data: () => item });
@@ -39,7 +39,7 @@ test('Attendance loads fresh summaries for both roles and evidence only on autho
     assert.match(sql, /payload - 'evidencia_imagen'/);
     assert.match(sql, /NOT is_deleted/);
     const { evidencia_imagen, ...summary } = record;
-    return { rows: [{ document_id: record.id, payload: { ...summary, evidencia_disponible: Boolean(evidencia_imagen) } }] } as any;
+    return { rows: [{ document_id: record.id, payload: { ...summary, evidencia_disponible: Boolean(evidencia_imagen) } }, { document_id: 'old-d10', payload: { ...summary, id: 'old-d10', dia: 10 } }, { document_id: 'eq-att', payload: { ...summary, id: 'eq-att', training_session_id: 'eq' } }] } as any;
   });
   const { bootstrapRoutes } = await import('./bootstrapRoutes.js');
   const app = express(); app.use('/bootstrap', bootstrapRoutes);
@@ -48,7 +48,7 @@ test('Attendance loads fresh summaries for both roles and evidence only on autho
   t.after(() => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())));
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}/bootstrap`;
   const request = (uid: string, path = '?scope=training') => fetch(base + path, { headers: uid ? { Authorization: `Bearer ${uid}` } : {} });
-  const body = (response: Awaited<ReturnType<typeof fetch>>) => response.json() as Promise<{ attendance: Array<Record<string, unknown>>; evidencia_imagen?: string }>;
+  const body = (response: Awaited<ReturnType<typeof fetch>>) => response.json() as Promise<{ sessions: Array<Record<string, unknown>>; attendance: Array<Record<string, unknown>>; evidencia_imagen?: string }>;
   assert.equal((await request('')).status, 401);
   for (const uid of ['admin', 'trainer']) {
     for (const path of ['', '?scope=training']) {
@@ -57,6 +57,10 @@ test('Attendance loads fresh summaries for both roles and evidence only on autho
       assert.equal(response.headers.get('cache-control'), 'no-store');
       const data = await body(response);
       assert.equal(data.attendance.length, 1);
+      assert.equal(data.sessions.length, 1);
+      assert.equal(data.sessions[0].training_days, 5);
+      assert.equal(data.sessions[0].fecha_fin, '2026-11-19');
+      assert.equal(collections.sessions[0].training_days, 10);
       assert.equal(data.attendance[0].estado_asistencia, record.estado_asistencia);
       assert.equal(data.attendance[0].evidencia_imagen, undefined);
       assert.equal(data.attendance[0].evidencia_disponible, true);
