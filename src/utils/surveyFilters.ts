@@ -1,4 +1,4 @@
-import type { TrainingSession, TrainingSurvey } from '../types';
+import type { TrainingSession, TrainingSurvey, SurveyResponse } from '../types';
 import { getSessionTrainerIds } from './trainingAssignments';
 
 export const overlapsDateRange = (start: string, end: string, from: string, to: string) =>
@@ -39,4 +39,13 @@ export const filterSurveys = (surveys: TrainingSurvey[], sessions: TrainingSessi
       (!filters.type || normalize(session?.tipo_capacitacion || survey.training_type) === normalize(filters.type)) &&
       overlapsDateRange(start, end, filters.from, filters.to);
   });
+};
+
+export const matchesSurveyResponseFilters = (response: Pick<SurveyResponse, 'fecha_respuesta' | 'campaña'>, campaign: string, from: string, to: string) => {
+  const value = String(response.fecha_respuesta || '');
+  const date = new Date(value);
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : Number.isNaN(date.getTime()) ? '' :
+    new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  return (!campaign || normalize(response.campaña) === normalize(campaign)) &&
+    !(from && to && from > to) && (!from || day >= from) && (!to || Boolean(day) && day <= to);
 };

@@ -8,7 +8,7 @@ const parseResponse = async <T>(response: Response): Promise<T> => {
   const data = (await response.json().catch(() => null)) as
     | (T & { message?: string })
     | null;
-  if (!response.ok) {
+  if (!response.ok || !data) {
     throw new Error(data?.message || 'No se pudo procesar la encuesta.');
   }
   return data as T;
@@ -60,9 +60,12 @@ export const submitPublicSurveyResponse = async (
     `${API_BASE_URL}/api/public-surveys/${encodeURIComponent(token)}/responses`,
     {
       method: 'POST',
+      signal: AbortSignal.timeout(45000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     },
   );
-  return parseResponse<{ ok: true; response: SurveyResponse }>(response);
+  const result = await parseResponse<{ ok: true; response: SurveyResponse }>(response);
+  if (result.ok !== true || !result.response?.id) throw new Error('El servidor no confirmo el guardado de la encuesta.');
+  return result;
 };

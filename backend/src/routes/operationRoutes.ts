@@ -21,7 +21,7 @@ import {
 const router = Router();
 const recordSchema = z.object({ id: z.string().min(1), training_session_id: z.string().min(1) }).passthrough();
 const attendanceBatchSchema = z.object({
-  records: z.array(recordSchema).min(1).max(1000),
+  records: z.array(recordSchema.extend({ turno: z.enum(['AM', 'PM']).optional() })).min(1).max(1000),
 });
 const cvUploadSchema = z.object({
   training_session_id: z.string().min(1),
@@ -201,6 +201,7 @@ router.put(
   requireAuth,
   requireRole(['Administrador', 'Analista', 'Formador']),
   async (req: AuthenticatedRequest, res: Response) => {
+    try {
     const parsed = attendanceBatchSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ message: 'Los registros de asistencia son invalidos.' });
@@ -236,6 +237,42 @@ router.put(
         parsed.data.records.filter((record) => record.training_session_id === sessionId));
       if (error) { res.status(403).json({ message: error }); return; }
     }
+    if (parsed.data.records.some((record) => record.turno)) {
+      if (parsed.data.records.some((record) => !record.turno)) {
+        res.status(400).json({ message: 'No mezcles registros historicos y turnos en un guardado.' }); return;
+      }
+      const savedRecords: Record<string, any>[] = [];
+      const ids = new Set<string>();
+      for (const record of parsed.data.records) {
+        const participant = await adminDb.collection('participants').doc(String(record.participant_id || '')).get();
+        if (!participant.exists || participant.data()?.training_session_id !== record.training_session_id) {
+          res.status(403).json({ message: 'El participante no pertenece a la capacitacion.' }); return;
+        }
+        if (!['Asistió', 'Tardanza', 'Faltó', 'Descanso médico', 'Desistió', 'Baja', 'Feriado', 'Seleccionar'].includes(String(record.estado_asistencia))) {
+          res.status(400).json({ message: 'Estado de asistencia invalido.' }); return;
+        }
+        const id = `att-shift-${encodeURIComponent(record.training_session_id)}-${encodeURIComponent(String(record.participant_id))}-${Number(record.dia)}-${record.turno}`;
+        if (ids.has(id)) { res.status(400).json({ message: 'El turno contiene marcas repetidas.' }); return; }
+        ids.add(id);
+        const { evidencia_disponible: _available, ...data } = record;
+        savedRecords.push({ ...data, id, registrado_por: req.user!.uid, fecha_registro: new Date().toISOString() });
+      }
+      // All marks in a shift are committed together; retries reuse the same IDs.
+      await adminDb.runTransaction(async (transaction) => {
+        for (const record of savedRecords) transaction.set(adminDb.collection('attendance').doc(record.id), record, { merge: true });
+      });
+      const people = new Map(savedRecords.map((record) => [String(record.participant_id), String(record.training_session_id)]));
+      for (const [id, sessionId] of people) {
+        try {
+          const participant = await adminDb.collection('participants').doc(id).get();
+          await syncOjtSurveyForEligibleParticipant({ ...participant.data(), id }, { ...sessions.get(sessionId), id: sessionId }, req.user!.uid);
+        } catch (error) {
+          // Attendance is already durable; survey reconciliation can retry on bootstrap.
+          console.error('Survey synchronization after shift save:', error);
+        }
+      }
+      res.json({ ok: true, saved: savedRecords.length, records: savedRecords }); return;
+    }
     const writer = adminDb.bulkWriter();
     parsed.data.records.forEach((record) => {
       writer.set(adminDb.collection('attendance').doc(String(record.id)), record, { merge: true });
@@ -259,6 +296,10 @@ router.put(
       }
     }
     res.json({ ok: true, saved: parsed.data.records.length });
+    } catch (error) {
+      console.error('Attendance batch save failed:', error);
+      res.status(503).json({ message: 'No se pudo confirmar el guardado. Conserva las marcas y vuelve a intentar.' });
+    }
   },
 );
 

@@ -1,3 +1,4 @@
+import { attendanceShiftId, shiftAttendanceColumns } from '../utils/attendanceShifts';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -6,6 +7,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   Calendar,
+  Save,
   Users,
   Search,
   CheckCircle,
@@ -43,6 +45,7 @@ import { getParticipantCvUrlRemote, uploadParticipantCvRemote, getAttendanceEvid
 import * as XLSX from 'xlsx';
 
 interface AttendanceControlProps {
+  key?: string;
   session: TrainingSession;
   phase?: 'initial' | 'ojt';
   ojtClosed?: boolean;
@@ -52,6 +55,7 @@ interface AttendanceControlProps {
   reopens: AttendanceReopenRequest[];
   currentUser: AppUser;
   simulatedTime: { hour: number; minute: number; isSimulated: boolean };
+  onSaveAttendanceShift: (records: AttendanceRecord[]) => Promise<void>;
   onSaveAttendance: (record: Omit<AttendanceRecord, 'id' | 'fecha_registro'>) => Promise<void>;
   onBulkAttendance: (
     sessionId: string,
@@ -134,8 +138,9 @@ export default function AttendanceControl({
   reopens,
   currentUser,
   simulatedTime,
-  onSaveAttendance,
-  onBulkAttendance,
+  onSaveAttendance: _onSaveAttendance,
+  onBulkAttendance: _onBulkAttendance,
+  onSaveAttendanceShift,
   onRequestReopen,
   onUpdateParticipantOutcome,
   onUpdateParticipantDetails,
@@ -143,6 +148,62 @@ export default function AttendanceControl({
   onGoBack,
   onAttemptLockedEdit
 }: AttendanceControlProps) {
+  const [selectedShift, setSelectedShift] = useState<'AM' | 'PM'>('AM');
+  const draftKey = `attendance-drafts:${currentUser.id}:${session.id}`;
+  const [drafts, setDrafts] = useState<Record<string, AttendanceRecord>>(() => {
+    try { return JSON.parse(sessionStorage.getItem(draftKey) || '{}'); } catch { return {}; }
+  });
+  const [saveError, setSaveError] = useState('');
+  const [savedShift, setSavedShift] = useState('');
+  const draftCount = Object.keys(drafts).length;
+  useEffect(() => {
+    try {
+      if (draftCount) sessionStorage.setItem(draftKey, JSON.stringify(drafts));
+      else sessionStorage.removeItem(draftKey);
+    } catch { setSaveError('No se pudo conservar el borrador local. Guarda el turno antes de salir.'); }
+  }, [drafts, draftKey, draftCount]);
+  useEffect(() => {
+    if (!draftCount) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [draftCount]);
+  const onSaveAttendance = async (record: Omit<AttendanceRecord, 'id' | 'fecha_registro'>) => {
+    const id = attendanceShiftId(session.id, record.participant_id, record.dia, selectedShift);
+    setDrafts((current) => ({ ...current, [id]: {
+      ...record, id, turno: selectedShift, fecha_registro: new Date().toISOString(),
+      motivo_desercion: record.motivo_desercion || '', observacion: record.observacion || '',
+      evidencia_nombre: record.evidencia_nombre || '', evidencia_imagen: record.evidencia_imagen || '',
+    } }));
+    setShowSaveFeedback(false); setSaveError('');
+  };
+  const onBulkAttendance = async (sessionId: string, day: number, status: AttendanceStatus, ids: string[],
+    reason?: string, observation?: string, evidenceName?: string, evidence?: string) => {
+    for (const participant_id of ids) await onSaveAttendance({
+      training_session_id: sessionId, participant_id, dia: day, fecha: getDayDate(day),
+      estado_asistencia: status, motivo_desercion: reason, observacion: observation,
+      evidencia_nombre: evidenceName, evidencia_imagen: evidence, registrado_por: currentUser.id,
+    });
+  };
+  const saveShift = async (turno: 'AM' | 'PM') => {
+    if (isTimeLocked || isSavingAttendance) return;
+    const records = Object.values<AttendanceRecord>(drafts).filter((record) => record.turno === turno && record.dia === selectedDay);
+    if (!records.length) { setSaveError('No hay cambios pendientes para este dia y turno.'); return; }
+    setIsSavingAttendance(true); setSaveError(''); setShowSaveFeedback(false);
+    try {
+      await onSaveAttendanceShift(records);
+      setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !records.some((r) => r.id === id))));
+      setSavedShift(turno); setShowSaveFeedback(true);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'No se pudo guardar. Las marcas siguen pendientes.');
+    } finally { setIsSavingAttendance(false); }
+  };
+  const visibleAttendance = useMemo(() => {
+    const saved = attendance.filter((record) => record.training_session_id === session.id && record.turno === selectedShift);
+    const pending = Object.values<AttendanceRecord>(drafts).filter((record) => record.turno === selectedShift);
+    const pendingIds = new Set(pending.map((record) => record.id));
+    return [...saved.filter((record) => !pendingIds.has(record.id)), ...pending];
+  }, [attendance, drafts, session.id, selectedShift]);
   const hasOjt = hasCampaignOjt(session.campaña);
   const showEvaluation = phase === 'initial' || !hasOjt;
   const showOutcome = phase === 'ojt' || !hasOjt;
@@ -206,7 +267,7 @@ export default function AttendanceControl({
   const [bulkEvidenceName, setBulkEvidenceName] = useState('');
   const [bulkEvidenceImage, setBulkEvidenceImage] = useState('');
 
-  // Save feedback state (psychological peace of mind)
+  // Feedback is shown only after the server confirms persistence.
   const [showSaveFeedback, setShowSaveFeedback] = useState(false);
 
   // Training outcome (Apto / No apto) state variables
@@ -503,13 +564,13 @@ export default function AttendanceControl({
   // Map attendance for fast lookup [participantId_day] -> AttendanceRecord
   const attendanceMap = useMemo(() => {
     const map: { [key: string]: AttendanceRecord } = {};
-    attendance.forEach(a => {
+    visibleAttendance.forEach(a => {
       if (a.training_session_id === session.id) {
         map[`${a.participant_id}_${a.dia}`] = a;
       }
     });
     return map;
-  }, [attendance, session.id]);
+  }, [visibleAttendance, session.id]);
 
   // Filter participants
   const filteredParts = useMemo(() => {
@@ -830,6 +891,7 @@ export default function AttendanceControl({
 
   // Bulk execution
   const handleBulkApply = () => {
+    if (isSavingAttendance) return;
     if (isTimeLocked) {
       if (currentUser.rol === 'Formador' && onAttemptLockedEdit) {
         onAttemptLockedEdit(session.nombre_generacion, session.campaña, selectedDay);
@@ -907,9 +969,7 @@ export default function AttendanceControl({
         'Estado final': part.estado_final,
         Observacion: part.observacion || part.observacion_general || '',
       };
-      trainingDays.forEach((day, index) => {
-        row[`Dia ${day}`] = rowAttendance[index]?.estado_asistencia || 'Pendiente';
-      });
+      Object.assign(row, shiftAttendanceColumns(attendance, session.id, part.id));
       return row;
     });
 
@@ -924,7 +984,7 @@ export default function AttendanceControl({
       {/* Top Navigation Row */}
       <div className="flex justify-between items-center glass-card p-4 rounded-xl">
         <button
-          onClick={onGoBack}
+          onClick={() => { if (!draftCount || window.confirm('Hay marcas sin guardar. ¿Salir y descartarlas?')) onGoBack(); }}
           className="text-slate-600 hover:text-slate-800 font-semibold text-sm flex items-center gap-1 cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -1114,7 +1174,7 @@ export default function AttendanceControl({
               <Check className="w-4 h-4" />
             </div>
             <div>
-              <span className="font-bold">¡Asistencias Sincronizadas!</span> Las marcas del Día {selectedDay} se han guardado de forma segura en la base de datos de FDR.
+              <span className="font-bold">¡Asistencias Sincronizadas!</span> Las marcas del turno {savedShift}, Día {selectedDay}, se han guardado de forma segura en la base de datos de FDR.
             </div>
           </div>
           <button 
@@ -1136,7 +1196,9 @@ export default function AttendanceControl({
               {trainingDays.map(day => (
                 <button
                   key={day}
+                  disabled={isSavingAttendance}
                   onClick={() => {
+                    setShowSaveFeedback(false);
                     setSelectedDay(day);
                     setSelectedParticipants([]);
                   }}
@@ -1178,22 +1240,22 @@ export default function AttendanceControl({
                 <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showFiltersPanel ? 'rotate-180' : ''}`} />
               </button>
 
-              <button
-                onClick={() => {
-                  if (isTimeLocked) return;
-                  setShowSaveFeedback(true);
-                  setTimeout(() => setShowSaveFeedback(false), 5000);
-                }}
-                disabled={isTimeLocked}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
-                title="Sincronizar y Confirmar Marcas en FDR"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Confirmar Marcas</span>
+              <div className="flex items-center gap-1" role="group" aria-label="Turno de asistencia">
+                {(['AM', 'PM'] as const).map((turno) => <button key={turno} type="button" disabled={isSavingAttendance}
+                  aria-pressed={selectedShift === turno} onClick={() => { setSelectedShift(turno); setSelectedParticipants([]); setShowSaveFeedback(false); }}
+                  className={`px-3 py-2 rounded-lg text-xs font-bold border ${selectedShift === turno ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600'}`}>{turno}</button>)}
+              </div>
+              <button type="button" onClick={() => void saveShift(selectedShift)}
+                disabled={isTimeLocked || isSavingAttendance}
+                className="bg-emerald-600 text-white flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold disabled:opacity-50">
+                <Save className="w-4 h-4" />{isSavingAttendance ? 'Guardando...' : `Guardar turno ${selectedShift}`}
               </button>
             </div>
           </div>
 
+          {draftCount > 0 && <p role="status" className="text-xs font-semibold text-amber-700">{draftCount} marcas pendientes de guardar</p>}
+          {saveError && <p role="alert" className="text-xs font-semibold text-rose-700">{saveError}</p>}
+          {showSaveFeedback && <p role="status" className="text-xs font-semibold text-emerald-700">Turno {savedShift} guardado en el sistema.</p>}
           {/* Collapsible Filter Panel (Item 4) */}
           {showFiltersPanel && (
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-inner grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
@@ -1326,7 +1388,7 @@ export default function AttendanceControl({
 
               <button
                 onClick={handleBulkApply}
-                disabled={selectedParticipants.length === 0}
+                disabled={isSavingAttendance || selectedParticipants.length === 0}
                 className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold px-3.5 py-1.5 rounded-lg transition-colors cursor-pointer"
               >
                 Aplicar a Selección
@@ -1460,11 +1522,13 @@ export default function AttendanceControl({
                       {/* Days markings */}
                       {trainingDays.map((dayNum) => {
                         const record = attendanceMap[`${part.id}_${dayNum}`];
+                        const legacy = attendance.find((r) => r.training_session_id === session.id && r.participant_id === part.id && r.dia === dayNum && !r.turno && !isPendingStatus(r.estado_asistencia));
                         const isCurrentDay = selectedDay === dayNum;
-                        const isDayEditLocked = isTimeLocked || !isCurrentDay || !canRoleEditAttendanceDay(dayNum);
+                        const isDayEditLocked = isSavingAttendance || isTimeLocked || !isCurrentDay || !canRoleEditAttendanceDay(dayNum);
 
                         return (
                           <td key={dayNum} className={`p-2 text-center ${isCurrentDay ? 'bg-indigo-50/20' : ''}`}>
+                            {legacy && <span className="block text-[10px] text-slate-500 mb-1">Sin turno: {legacy.estado_asistencia}</span>}
                             {isDayEditLocked && !isCurrentDay ? (
                               // Passive static display
                               record ? (

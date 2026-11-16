@@ -242,6 +242,7 @@ export interface Participant {
 export type AttendanceStatus = 'Seleccionar' | 'Asistió' | 'Tardanza' | 'Faltó' | 'Descanso médico' | 'Desistió' | 'Baja' | 'Feriado' | 'Pendiente';
 
 export interface AttendanceRecord {
+  turno?: 'AM' | 'PM';
   id: string;
   participant_id: string;
   training_session_id: string;

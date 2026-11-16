@@ -1,9 +1,10 @@
 import * as XLSX from 'xlsx';
+import { shiftAttendanceColumns, dailyAttendance } from './attendanceShifts';
 import type { TrainingSession, OjtModule, Participant, AttendanceRecord, OperationConfirmation } from '../types';
 
 export const TRAINING_EXPORT_HEADERS = [
   'Campaña', 'Código de generación', 'Nombre del postulante',
-  'Asistencia D1', 'D2', 'D3', 'D4', 'D5',
+  ...Object.keys(shiftAttendanceColumns([], '', '')),
   'Desistió (Sí/No)', 'Motivo de desistimiento/baja', 'Apto/No apto', 'Nota del examen',
   'Perfil del ejecutivo',
 ];
@@ -15,7 +16,7 @@ export const buildTrainingWorkbook = (
 ) => {
   const sessionMap = new Map(sessions.map((session) => [session.id, session]));
   const byDay = new Map<string, AttendanceRecord>();
-  for (const record of attendance) {
+  for (const record of dailyAttendance(attendance)) {
     if (!sessionMap.has(record.training_session_id)) continue;
     const id = `${record.training_session_id}/${record.participant_id}/${record.dia}`;
     const previous = byDay.get(id);
@@ -33,7 +34,7 @@ export const buildTrainingWorkbook = (
       .map((record) => record!.motivo_desercion || record!.observacion || '').filter(Boolean);
     const outcome = person.resultado_formacion;
     return [session.campaña || '', session.generation_code || session.nombre_generacion || '',
-      `${person.nombres || ''} ${person.apellidos || ''}`.trim(), ...states,
+      `${person.nombres || ''} ${person.apellidos || ''}`.trim(), ...Object.values(shiftAttendanceColumns(attendance, session.id, person.id)),
       states.some((state) => key(String(state)) === 'desistio') ? 'Sí' : 'No',
       [...new Set(reasons.length ? reasons : person.motivo_desercion ? [person.motivo_desercion] : [])].join('; '), outcome === 'Marcar' ? '' : outcome || '', person.evaluacion_nota ?? '', person.puesto ?? ''];
   }).sort((a, b) => String(a[0]).localeCompare(String(b[0]), 'es') || String(a[1]).localeCompare(String(b[1]), 'es'));

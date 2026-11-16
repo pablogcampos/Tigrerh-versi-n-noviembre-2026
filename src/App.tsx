@@ -1,3 +1,4 @@
+import { dailyAttendance } from './utils/attendanceShifts';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -281,7 +282,7 @@ export default function App() {
   useEffect(() => {
     const sessionsById = new Map<string, TrainingSession>(sessions.map(session => [session.id, session]));
     const attendanceByParticipantSession = new Map<string, Map<number, AttendanceRecord>>();
-    for (const record of attendance) {
+    for (const record of dailyAttendance(attendance)) {
       const key = `${record.participant_id}\u0000${record.training_session_id}`;
       let recordsByDay = attendanceByParticipantSession.get(key);
       if (!recordsByDay) {
@@ -1238,6 +1239,15 @@ export default function App() {
         };
       }),
     );
+  };
+
+  const handleSaveAttendanceShift = async (records: AttendanceRecord[]) => {
+    const result = await persistAttendanceBatch(records);
+    if (result.saved !== records.length || !result.records || result.records.length !== records.length) {
+      throw new Error('No se confirmaron todas las asistencias. Conserva las marcas y vuelve a intentar.');
+    }
+    const saved = new Map(result.records.map((record) => [record.id, record]));
+    setAttendance((current) => [...current.filter((record) => !saved.has(record.id)), ...saved.values()]);
   };
 
   // 3. Mark Single Attendance Record
@@ -2667,6 +2677,7 @@ export default function App() {
               {/* View 3: Grid Daily Attendance Control */}
               {currentView === 'asistencia' && activeSession && userHasModuleAccess(activeUser, 'formacion', 'asistencia') && (
                 <AttendanceControl
+                  key={activeSession.id}
                   session={activeSession}
                   phase={attendancePhase}
                   ojtClosed={isOperationalOjtClosed(activeSession, ojtModules.find((module) => module.id === activeSession.ojt_module_id)?.estado)}
@@ -2677,6 +2688,7 @@ export default function App() {
                   currentUser={activeUser}
                   simulatedTime={simTime}
                   onSaveAttendance={handleSaveAttendance}
+                  onSaveAttendanceShift={handleSaveAttendanceShift}
                   onBulkAttendance={handleBulkAttendance}
                   onRequestReopen={handleRequestReopen}
                   onUpdateParticipantOutcome={handleUpdateParticipantOutcome}

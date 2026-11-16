@@ -15,6 +15,7 @@ const save = async <T = void>(path: string, body: unknown): Promise<T> => {
     if (!token) throw new Error('Sesion no disponible.');
     const response = await fetch(`${API_BASE_URL}${path}`, {
       method: 'PUT',
+      signal: AbortSignal.timeout(45000),
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
@@ -22,7 +23,7 @@ const save = async <T = void>(path: string, body: unknown): Promise<T> => {
       body: JSON.stringify(body),
     });
     const data = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(data?.message || 'No se pudo guardar el registro.');
+    if (!response.ok || data?.ok !== true) throw new Error(data?.message || 'El servidor no confirmo el guardado.');
     return data as T;
   } finally {
     pendingWrites -= 1;
@@ -84,7 +85,7 @@ export const persistAttendance = (record: AttendanceRecord) =>
   save(`/api/operations/attendance/${record.id}`, attendanceWriteData(record));
 
 export const persistAttendanceBatch = (records: AttendanceRecord[]) =>
-  save<{ ok: true; saved: number }>('/api/operations/attendance/bulk', { records: records.map(attendanceWriteData) });
+  save<{ ok: true; saved: number; records?: AttendanceRecord[] }>('/api/operations/attendance/bulk', { records: records.map(attendanceWriteData) });
 
 export const persistConfirmation = (confirmation: OperationConfirmation) =>
   save(`/api/operations/confirmations/${confirmation.id}`, confirmation);

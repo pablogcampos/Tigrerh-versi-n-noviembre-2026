@@ -50,7 +50,7 @@ import {
 } from 'recharts';
 import * as XLSX from 'xlsx';
 import { permissions } from '../utils/permissions';
-import { filterSurveys } from '../utils/surveyFilters';
+import { matchesSurveyResponseFilters, filterSurveys } from '../utils/surveyFilters';
 import { findParticipantSurveyResponse, getSurveyParticipants } from '../utils/surveyCompletion';
 import { getSessionTrainerIds, getSessionTrainerNames, isSessionAssignedTrainer } from '../utils/trainingAssignments';
 import { hasLegacyCampaignOjt as hasCampaignOjt } from '../../backend/src/services/trainingSchedule';
@@ -313,14 +313,15 @@ export default function Encuestas({
   }, [surveys, visibleSessionIds, ojtModules, currentUser.id, isAdmin, isAnalyst, isStaff, isRecruiter]);
 
   const sectionSurveys = useMemo(() => visibleSurveys.filter((survey) => (survey.survey_type || 'inicial') === surveySection), [visibleSurveys, surveySection]);
+  const filtersApplyToResponses = ['dashboard', 'comentarios', 'respuestas'].includes(activeTab);
   const rawFilteredSurveys = useMemo(() => filterSurveys(sectionSurveys, sessions, {
     campaign: filterCampaign, generation: filterGenerator, trainer: filterTrainer,
-    type: '', from: dateStart, to: dateEnd,
+    type: '', from: filtersApplyToResponses ? '' : dateStart, to: filtersApplyToResponses ? '' : dateEnd,
   }).filter((survey) =>
     (!filterSubcampaign || normalizeFilterValue(survey.subcampaña) === normalizeFilterValue(filterSubcampaign)) &&
     (survey.survey_type !== 'operaciones' || !filterTrainer || (survey.supervisor_nombres || [])
       .some((name) => normalizeFilterValue(name) === normalizeFilterValue(filterTrainer)))
-  ), [sectionSurveys, sessions, filterCampaign, filterGenerator, filterTrainer, filterSubcampaign, dateStart, dateEnd]);
+  ), [sectionSurveys, sessions, filterCampaign, filterGenerator, filterTrainer, filterSubcampaign, dateStart, dateEnd, filtersApplyToResponses]);
 
   const filteredSurveyGroups = useMemo(() => {
     const groups = new Map<string, { survey: TrainingSurvey; surveyIds: string[] }>();
@@ -376,16 +377,17 @@ export default function Encuestas({
   const filteredResponses = useMemo(() => {
     return normalizedResponses.filter(r => {
       return filteredSurveyIds.has(r.training_survey_id) &&
+        matchesSurveyResponseFilters(r, filterCampaign, filtersApplyToResponses ? dateStart : '', filtersApplyToResponses ? dateEnd : '') &&
         (surveySection !== 'operaciones' || !filterTrainer ||
           normalizeFilterValue(r.supervisor_nombre) === normalizeFilterValue(filterTrainer));
     });
-  }, [normalizedResponses, filteredSurveyIds, surveySection, filterTrainer]);
+  }, [normalizedResponses, filteredSurveyIds, surveySection, filterTrainer, filterCampaign, dateStart, dateEnd, filtersApplyToResponses]);
 
   // VALID RESPONSES ONLY (Habilitada or Cerrada surveys) FOR DASHBOARD CALCULATIONS
   const dashboardResponses = useMemo(() => {
     return filteredResponses.filter(r => {
       const survey = surveys.find(s => s.id === r.training_survey_id);
-      return survey && (survey.estado === 'Habilitada' || survey.estado === 'Cerrada');
+      return survey && survey.estado !== 'Eliminada';
     });
   }, [filteredResponses, surveys]);
 
@@ -1123,7 +1125,7 @@ export default function Encuestas({
 
           {/* Fecha Inicio */}
           <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Fecha Inicio</label>
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{filtersApplyToResponses ? 'Respuesta desde' : 'Fecha Inicio'}</label>
             <input
               type="date"
               value={dateStart}
@@ -1134,7 +1136,7 @@ export default function Encuestas({
 
           {/* Fecha Fin */}
           <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Fecha Fin</label>
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{filtersApplyToResponses ? 'Respuesta hasta' : 'Fecha Fin'}</label>
             <input
               type="date"
               value={dateEnd}

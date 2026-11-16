@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { shiftAttendanceColumns, dailyAttendance } from '../utils/attendanceShifts';
 import React, { useState, useMemo } from 'react';
 import {
   FileSpreadsheet,
@@ -60,7 +61,7 @@ export default function Reportes({
   // Map attendance into list of attendance counts
   const attendanceCounts = useMemo(() => {
     const map: { [key: string]: { asistio: number; tardanza: number; falto: number; desistio: number } } = {};
-    attendance.forEach(a => {
+    dailyAttendance(attendance).forEach(a => {
       if (!map[a.participant_id]) {
         map[a.participant_id] = { asistio: 0, tardanza: 0, falto: 0, desistio: 0 };
       }
@@ -74,7 +75,7 @@ export default function Reportes({
 
   const attendanceByParticipantDay = useMemo(() => {
     const map: Record<string, Record<number, AttendanceRecord>> = {};
-    attendance.forEach(record => {
+    dailyAttendance(attendance).forEach(record => {
       if (!map[record.participant_id]) map[record.participant_id] = {};
       map[record.participant_id][record.dia] = record;
     });
@@ -182,7 +183,7 @@ export default function Reportes({
     } else if (reportType === 'asistencia') {
       headers = [
         'DNI', 'Nombres', 'Apellidos', 'Campaña', 'Generación',
-        ...Array.from({ length: 5 }, (_, index) => `Día ${index + 1}`),
+        ...Object.keys(shiftAttendanceColumns([], '', '')),
         'Asistencias', 'Tardanzas', 'Faltas', 'Retiros', 'Resultado Final', 'Observación'
       ];
       rows = reportData.map(p => {
@@ -194,7 +195,7 @@ export default function Reportes({
           p.apellidos,
           s?.campaña || '',
           s?.nombre_generacion || '',
-          ...Array.from({ length: 5 }, (_, index) => getAttendanceStatus(p, index + 1)),
+          ...Object.values(shiftAttendanceColumns(attendance, p.training_session_id, p.id)),
           String(counts.asistio),
           String(counts.tardanza),
           String(counts.falto),

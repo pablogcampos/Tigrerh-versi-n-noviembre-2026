@@ -1,3 +1,4 @@
+import { dailyAttendance } from '../utils/attendanceShifts';
 import React, { useMemo } from 'react';
 import {
   Bar,
@@ -48,7 +49,7 @@ const getSessionMetrics = (
 ) => {
   const sessionParticipants = participants.filter((participant) => participant.training_session_id === session.id);
   const participantIds = new Set(sessionParticipants.map((participant) => participant.id));
-  const sessionAttendance = attendance.filter((record) =>
+  const sessionAttendance = dailyAttendance(attendance).filter((record) =>
     record.training_session_id === session.id && record.dia >= 1 && record.dia <= 5 && participantIds.has(record.participant_id),
   );
   const recordsByDay = new Map<number, AttendanceRecord[]>();

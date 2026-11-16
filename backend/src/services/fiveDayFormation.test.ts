@@ -67,6 +67,14 @@ test('five-day API flow, idempotency, manual control and legacy preservation', a
   t.mock.method(dataDb, 'bulkWriter', () => ({
     set: (ref: any, data: Data, options: any) => ref.set(data, options), close: async () => {},
   }) as any);
+  let failCommit = false;
+  t.mock.method(dataDb, 'runTransaction', async (callback: any) => {
+    const writes: Array<() => Promise<unknown>> = [];
+    const result = await callback({ set: (ref: any, data: Data, options: any) => writes.push(() => ref.set(data, options)) });
+    if (failCommit) throw new Error('Commit unavailable');
+    for (const write of writes) await write();
+    return result;
+  });
   const require = createRequire(new URL('../../package.json', import.meta.url));
   const { initializeApp, deleteApp } = require('firebase-admin/app');
   const app = initializeApp({ projectId: 'five-day-isolated-test' });
@@ -132,6 +140,30 @@ test('five-day API flow, idempotency, manual control and legacy preservation', a
       const body = { dni: participant.dni, q1: 5, q2: 5, q3: 5, q4: 5, q5: 5, q6: 5, q7: 5, q8: 5 };
       assert.equal((await invoke(publicSurveyRoutes, '/:token/responses', 'post', { ...request, body })).code, 201);
       assert.equal((await invoke(publicSurveyRoutes, '/:token/responses', 'post', { ...request, body })).code, 409);
+    });
+    await t.test('AM and PM persist independently; retries are idempotent and unauthorized writes fail', async () => {
+      const shift = (turno: string, estado_asistencia: string) => ({ ...day, id: 'client-id', turno, estado_asistencia });
+      const send = (record: Data, user?: Data) => invoke(operationRoutes, '/attendance/bulk', 'put', { body: { records: [record] }, ...(user ? { user } : {}) });
+      const trainer = { uid: 'trainer', rol: 'Formador', module_view_only: [] };
+      // Existing access window is preserved; admin is used for deterministic off-hours tests.
+      assert.equal((await send(shift('AM', 'Asistió'))).code, 200);
+      assert.equal((await send(shift('PM', 'Faltó'))).code, 200);
+      const amId = 'att-shift-s-p-5-AM', pmId = 'att-shift-s-p-5-PM';
+      assert.equal(rows('attendance').get(amId)?.estado_asistencia, 'Asistió');
+      assert.equal(rows('attendance').get(pmId)?.estado_asistencia, 'Faltó');
+      const count = rows('attendance').size;
+      assert.equal((await send(shift('AM', 'Asistió'))).payload.saved, 1);
+      assert.equal(rows('attendance').size, count);
+      assert.equal(isDayFiveSurveyEligible(participant, [...rows('attendance').values()]), true);
+      assert.deepEqual(rows('attendance').get('historical'), historical);
+      const denied = await send(shift('PM', 'Baja'), { ...trainer, uid: 'outsider' });
+      assert.equal(denied.code, 403);
+      assert.equal(rows('attendance').get(pmId)?.estado_asistencia, 'Faltó');
+      failCommit = true;
+      assert.equal((await send(shift('PM', 'Baja'))).code, 503);
+      assert.equal(rows('attendance').get(pmId)?.estado_asistencia, 'Faltó');
+      failCommit = false;
+      rows('attendance').delete(amId); rows('attendance').delete(pmId);
     });
     await t.test('manual disabling survives synchronization; early enabling is rejected', async () => {
       const survey = rows('surveys').get('srv-ojt-training-s')!;

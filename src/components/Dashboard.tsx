@@ -5,6 +5,7 @@
 import { isToolsDropout } from '../../backend/src/services/attendancePolicy';
 
 import { calculatePhaseMetrics, getSessionFinalTrainingDay } from '../../backend/src/services/trainingPhaseMetrics';
+import { dropoutShiftCounts } from '../utils/attendanceShifts';
 import React, { useState, useMemo } from 'react';
 import {
   BarChart,
@@ -208,6 +209,8 @@ export default function Dashboard({
   const filteredAttendance = useMemo(() => {
     return attendance.filter(a => filteredParticipantIds.has(a.participant_id));
   }, [attendance, filteredParticipantIds]);
+
+  const shiftDropouts = useMemo(() => dropoutShiftCounts(filteredAttendance), [filteredAttendance]);
 
   // Helper to filter out deleted altas
   const validConfirmations = useMemo(() => {
@@ -745,6 +748,19 @@ export default function Dashboard({
         </div>
       </div>
 
+      <div className="glass-card rounded-2xl p-5">
+        <h3 className="text-slate-800 font-bold text-base mb-4">Deserciones por turno</h3>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={shiftDropouts} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="name" fontSize={12} /><YAxis allowDecimals={false} />
+            <Tooltip /><Bar dataKey="cantidad" name="Participantes" fill="#6366f1" radius={[4,4,0,0]} />
+          </BarChart>
+        </ResponsiveContainer>
+        <div className="flex flex-wrap gap-6 mt-2 text-xs text-slate-600">
+          {shiftDropouts.map((item) => <span key={item.name}>{item.name}: <b>{item.cantidad}</b></span>)}
+        </div>
+      </div>
       {/* Charts Panel Row 2 */}
       <div className="grid grid-cols-1 gap-6">
         <div className="glass-card flex flex-col p-5 rounded-2xl">
