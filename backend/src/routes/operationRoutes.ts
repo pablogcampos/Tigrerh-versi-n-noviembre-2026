@@ -165,9 +165,14 @@ const syncOjtSurveyForEligibleParticipant = async (
   }
 
   const timestamp = new Date().toISOString();
-  const writer = adminDb.bulkWriter();
+  const existingDays = new Set(attendanceSnapshot.docs
+    .map((document) => document.data())
+    .filter((record) => String(record.training_session_id || '') === sessionId)
+    .map((record) => Number(record.dia)));
   for (let day = 6; day <= 10; day += 1) {
-    writer.set(adminDb.collection('attendance').doc(`ojt-${participantId}-${day}`), {
+    if (existingDays.has(day)) continue;
+    try {
+      await adminDb.collection('attendance').doc(`ojt-${participantId}-${day}`).create({
       id: `ojt-${participantId}-${day}`,
       participant_id: participantId,
       training_session_id: sessionId,
@@ -176,9 +181,12 @@ const syncOjtSurveyForEligibleParticipant = async (
       estado_asistencia: 'Seleccionar',
       registrado_por: userId,
       fecha_registro: timestamp,
-    }, { merge: true });
+      });
+    } catch (error) {
+      // A concurrent save must win over preparation of an empty OJT day.
+      if ((error as { code?: number | string }).code !== 6 && (error as { code?: string }).code !== 'already-exists') throw error;
+    }
   }
-  await writer.close();
   await ensureOjtSurvey(session, moduleData, userId);
 };
 

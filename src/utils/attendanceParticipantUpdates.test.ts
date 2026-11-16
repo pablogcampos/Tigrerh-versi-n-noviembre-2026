@@ -326,9 +326,24 @@ test('document correction and affected routes use existing records atomically', 
       assert.deepEqual(ojtRecords.map((record) => record.dia).sort((left, right) => left - right), [6, 7, 8, 9, 10]);
       assert.ok(ojtRecords.every((record) => record.estado_asistencia === 'Seleccionar'));
 
+      const statuses = ['Asistió', 'Tardanza', 'Faltó', 'Descanso médico', 'Baja'];
+      for (const [index, record] of ojtRecords.entries()) {
+        Object.assign(record, { estado_asistencia: statuses[index], observacion: 'Original', evidencia_imagen: 'original-evidence', fecha_registro: '2026-10-20T15:00:00Z' });
+      }
+      // Imported attendance can have legacy ids instead of the OJT placeholder id.
+      const legacy = store.attendance.get('ojt-p-7')!;
+      store.attendance.delete('ojt-p-7');
+      store.attendance.set('legacy-day7', { ...legacy, id: 'legacy-day7' });
+      const savedOjt = structuredClone([...store.attendance.values()].filter(record => record.dia >= 6));
+
       assert.equal((await invoke(operationRoutes, '/attendance/:id', 'put', correction, 'Administrador')).code, 200);
       assert.deepEqual(store.ojt_modules.get('m')!.participant_ids, ['p']);
       assert.equal([...store.attendance.values()].filter((record) => record.participant_id === 'p' && record.dia >= 6).length, 5);
+      assert.deepEqual([...store.attendance.values()].filter(record => record.dia >= 6), savedOjt);
+      assert.equal((await invoke(operationRoutes, '/attendance/bulk', 'put', { records: [correction] }, 'Administrador')).code, 200);
+      assert.deepEqual([...store.attendance.values()].filter(record => record.dia >= 6), savedOjt);
+      assert.equal((await invoke(operationRoutes, '/participants/:id', 'put', { ...store.participants.get('p'), resultado_formacion_ojt: 'Apto' }, 'Administrador')).code, 200);
+      assert.deepEqual([...store.attendance.values()].filter(record => record.dia >= 6), savedOjt);
     });
   } finally { await deleteApp(app); }
 });
