@@ -44,6 +44,7 @@ import { BPO_CAMPAIGNS } from '../constants/campaigns';
 import MonthlyTrainingView from './MonthlyTrainingView';
 import { getSessionTrainerIds, isSessionAssignedTrainer } from '../utils/trainingAssignments';
 import CampaignMultiSelect from './CampaignMultiSelect';
+import { getAttendanceEvidenceRemote } from '../services/operationService';
 
 interface DashboardProps {
   sessions: TrainingSession[];
@@ -102,6 +103,14 @@ export default function Dashboard({
   const [filterMeses, setFilterMeses] = useState<string[]>([]);
   const [excludeExcludentes, setExcludeExcludentes] = useState(false);
   const [evidencePreview, setEvidencePreview] = useState<{ src: string; name: string } | null>(null);
+  const showAttendanceEvidence = async (record: AttendanceRecord) => {
+    try {
+      const src = await getAttendanceEvidenceRemote(record);
+      if (src) setEvidencePreview({ src, name: record.evidencia_nombre || 'Evidencia de deserción' });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'No se pudo cargar la evidencia.');
+    }
+  };
 
   const roleScopedSessions = useMemo(() => {
     if (currentUser.rol === 'Formador') {
@@ -904,13 +913,10 @@ export default function Dashboard({
                         <span className="px-2 py-0.5 rounded-full font-bold text-[10px] bg-rose-100 text-rose-800">
                           {record.motivo_desercion || record.estado_asistencia}
                         </span>
-                        {record.evidencia_imagen && (
+                        {(record.evidencia_imagen || record.evidencia_disponible) && (
                           <button
                             type="button"
-                            onClick={() => setEvidencePreview({
-                              src: record.evidencia_imagen || '',
-                              name: record.evidencia_nombre || 'Evidencia de deserción',
-                            })}
+                            onClick={() => void showAttendanceEvidence(record)}
                             className="p-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50"
                             title="Visualizar evidencia"
                             aria-label="Visualizar evidencia"

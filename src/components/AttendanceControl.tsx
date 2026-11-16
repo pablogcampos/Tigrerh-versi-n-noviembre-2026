@@ -39,7 +39,7 @@ import { getBusinessDayDate, getTrainingDaysCount } from '../utils/trainingDays'
 import { hasCampaignOjt } from '../../backend/src/services/trainingSchedule';
 import { isAttendanceWindowOpen } from '../utils/time';
 import { getSessionTrainerNames, isSessionInitialTrainer, isSessionOjtTrainer } from '../utils/trainingAssignments';
-import { getParticipantCvUrlRemote, uploadParticipantCvRemote } from '../services/operationService';
+import { getParticipantCvUrlRemote, uploadParticipantCvRemote, getAttendanceEvidenceRemote } from '../services/operationService';
 import * as XLSX from 'xlsx';
 
 interface AttendanceControlProps {
@@ -218,6 +218,15 @@ export default function AttendanceControl({
   const [outcomeError, setOutcomeError] = useState('');
   const [editingParticipant, setEditingParticipant] = useState<Participant | null>(null);
   const [evidencePreview, setEvidencePreview] = useState<{ src: string; name: string } | null>(null);
+  const showAttendanceEvidence = async (record?: AttendanceRecord) => {
+    if (!record) return;
+    try {
+      const src = await getAttendanceEvidenceRemote(record);
+      if (src) setEvidencePreview({ src, name: record.evidencia_nombre || 'Evidencia' });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'No se pudo cargar la evidencia.');
+    }
+  };
   const [isUploadingCv, setIsUploadingCv] = useState(false);
   const [selectedCvFile, setSelectedCvFile] = useState<File | null>(null);
   const [participantDraft, setParticipantDraft] = useState({
@@ -709,12 +718,21 @@ export default function AttendanceControl({
     } else if (isAbsenceStatus(status) || isMedicalLeaveStatus(status) || normalizeStatus(status) === 'tardanza') {
       // Open Novedad Observation capture modal
       const existing = attendanceMap[`${participant.id}_${day}`];
+      let evidence = existing?.evidencia_imagen || '';
+      if (existing?.evidencia_disponible && !evidence) {
+        setIsSavingAttendance(true);
+        try { evidence = await getAttendanceEvidenceRemote(existing); }
+        catch (error) {
+          alert(error instanceof Error ? error.message : 'No se pudo cargar la evidencia.');
+          return;
+        } finally { setIsSavingAttendance(false); }
+      }
       setObsModalParticipant(participant);
       setObsModalDay(day);
       setObsModalStatus(status);
       setObsModalValue(existing?.observacion || '');
       setObsEvidenceName(existing?.evidencia_nombre || '');
-      setObsEvidenceFile(existing?.evidencia_imagen || '');
+      setObsEvidenceFile(evidence);
       setShowObservationModal(true);
     } else {
       setIsSavingAttendance(true);
@@ -1697,15 +1715,10 @@ export default function AttendanceControl({
                               {activeMedicalLeaveRecord ? 'Descanso médico' : activeDesistioRecord?.motivo_desercion}
                             </p>
                             <p className="text-slate-400 truncate italic">{(activeDesistioRecord || activeMedicalLeaveRecord)?.observacion}</p>
-                            {(activeDesistioRecord || activeMedicalLeaveRecord)?.evidencia_imagen && (
+                            {((activeDesistioRecord || activeMedicalLeaveRecord)?.evidencia_imagen || (activeDesistioRecord || activeMedicalLeaveRecord)?.evidencia_disponible) && (
                               <button
                                 type="button"
-                                onClick={() =>
-                                  setEvidencePreview({
-                                    src: (activeDesistioRecord || activeMedicalLeaveRecord)?.evidencia_imagen || '',
-                                    name: (activeDesistioRecord || activeMedicalLeaveRecord)?.evidencia_nombre || 'Evidencia',
-                                  })
-                                }
+                                onClick={() => void showAttendanceEvidence(activeDesistioRecord || activeMedicalLeaveRecord)}
                                 className="mt-1 inline-flex text-[9px] font-bold text-indigo-600 underline"
                               >
                                 Ver sustento

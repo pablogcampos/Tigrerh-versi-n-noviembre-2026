@@ -253,6 +253,7 @@ export interface AttendanceRecord {
   observacion?: string;
   evidencia_nombre?: string;
   evidencia_imagen?: string;
+  evidencia_disponible?: boolean;
   registrado_por: string; // User ID
   fecha_registro: string;
 }

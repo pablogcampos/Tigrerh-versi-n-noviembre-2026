@@ -1,5 +1,6 @@
 import { Router, type Response } from 'express';
 import { dataDb as adminDb, getCollectionRevision } from '../hybridDb.js';
+import { readAttendanceSummaries } from '../services/attendanceReadService.js';
 import {
   type AuthenticatedRequest,
   requireAuth,
@@ -15,6 +16,7 @@ const collectionCache = new Map<string, {
 const COLLECTION_CACHE_TTL_MS = 30 * 1000;
 
 const readCollection = async (name: string, bypassCache = false) => {
+  if (name === 'attendance') return readAttendanceSummaries();
   const now = Date.now();
   const revision = getCollectionRevision(name);
   const cached = collectionCache.get(name);
@@ -74,7 +76,32 @@ const canAccessSurveyLink = (
   (Array.isArray(survey.link_assigned_user_ids) && survey.link_assigned_user_ids.includes(userId)) ||
   Boolean(session && isAssignedTrainer(session, userId));
 
+router.get('/attendance/:id/evidence', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const record = await adminDb.collection('attendance').doc(req.params.id).get();
+    const data = record.data();
+    if (!record.exists || !data?.training_session_id) {
+      res.status(404).json({ message: 'Asistencia no encontrada.' });
+      return;
+    }
+    const session = await adminDb.collection('sessions').doc(String(data.training_session_id)).get();
+    const user = req.user!;
+    const canSeeAll = ['Administrador', 'Analista', 'Coordinador', 'Sistemas', 'Reclutador'].includes(user.rol);
+    if (!session.exists || (!canSeeAll && !(user.rol === 'Formador'
+      ? isAssignedTrainer(session.data(), user.uid)
+      : session.data()?.reclutador_id === user.uid))) {
+      res.status(403).json({ message: 'No puedes consultar esta evidencia.' });
+      return;
+    }
+    res.set('Cache-Control', 'no-store').json({ evidencia_imagen: data.evidencia_imagen || '' });
+  } catch (error) {
+    console.error('Attendance evidence load error:', error);
+    res.status(500).json({ message: 'No se pudo cargar la evidencia.' });
+  }
+});
+
 router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  res.set('Cache-Control', 'no-store');
   try {
     const user = req.user!;
     const surveyProgressOnly = req.query.scope === 'surveys';

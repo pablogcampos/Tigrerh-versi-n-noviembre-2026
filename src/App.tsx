@@ -845,7 +845,7 @@ export default function App() {
     document.addEventListener('visibilitychange', refresh);
     void refresh();
     return () => { cancelled = true; window.clearInterval(interval); document.removeEventListener('visibilitychange', refresh); };
-  }, [activeUser, platformLoaded, currentView, urlView]);
+  }, [activeUser, platformLoaded, currentView, urlView, selectedSessionId]);
 
   useEffect(() => {
     if (!activeUser || !platformLoaded || urlView === 'survey' ||
@@ -1168,6 +1168,7 @@ export default function App() {
       observacion: _observacion,
       evidencia_nombre: _evidenciaNombre,
       evidencia_imagen: _evidenciaImagen,
+      evidencia_disponible: _evidenciaDisponible,
       minutos_tardanza: _minutosTardanza,
       ...baseRecord
     } = record;

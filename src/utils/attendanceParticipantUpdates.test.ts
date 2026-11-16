@@ -184,8 +184,19 @@ test('document correction and affected routes use existing records atomically', 
         assert.equal(result.code, hasCampaignOjt(campaña) ? 409 : 200);
       }
     });
-    await t.test('training synchronization respects existing scope and sees corrected DNI without stale cache', async () => {
+    await t.test('training synchronization respects existing scope and sees corrected DNI without stale cache', async (subtest) => {
       reset();
+      const { getPostgresPool, closePostgresPool } = await import('../../backend/src/postgres');
+      const previousUrl = process.env.DATABASE_URL;
+      process.env.DATABASE_URL = 'postgres://test:test@localhost:5432/test';
+      subtest.mock.method(getPostgresPool(), 'query', async () => ({
+        rows: [...store.attendance.values()].map(record => ({ document_id: record.id, payload: record })),
+      }) as any);
+      subtest.after(async () => {
+        await closePostgresPool();
+        if (previousUrl === undefined) delete process.env.DATABASE_URL;
+        else process.env.DATABASE_URL = previousUrl;
+      });
       store.sessions.get('s')!.formador_id = 'trainer';
       const handler = (bootstrapRoutes as any).stack.find((layer: any) => layer.route?.path === '/').route.stack.at(-1).handle;
       const read = async (rol: string, uid: string) => {

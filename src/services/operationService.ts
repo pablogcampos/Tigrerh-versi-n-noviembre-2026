@@ -71,11 +71,20 @@ const remove = async (path: string) => {
   if (!response.ok) throw new Error(data?.message || 'No se pudo eliminar el registro.');
 };
 
+export const getAttendanceEvidenceRemote = async (record: AttendanceRecord): Promise<string> => {
+  if (record.evidencia_imagen) return record.evidencia_imagen;
+  if (!record.evidencia_disponible) return '';
+  const data = await get<{ evidencia_imagen: string }>(`/api/bootstrap/attendance/${encodeURIComponent(record.id)}/evidence`);
+  return data.evidencia_imagen;
+};
+
+const attendanceWriteData = ({ evidencia_disponible: _available, ...record }: AttendanceRecord) => record;
+
 export const persistAttendance = (record: AttendanceRecord) =>
-  save(`/api/operations/attendance/${record.id}`, record);
+  save(`/api/operations/attendance/${record.id}`, attendanceWriteData(record));
 
 export const persistAttendanceBatch = (records: AttendanceRecord[]) =>
-  save<{ ok: true; saved: number }>('/api/operations/attendance/bulk', { records });
+  save<{ ok: true; saved: number }>('/api/operations/attendance/bulk', { records: records.map(attendanceWriteData) });
 
 export const persistConfirmation = (confirmation: OperationConfirmation) =>
   save(`/api/operations/confirmations/${confirmation.id}`, confirmation);

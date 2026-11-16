@@ -37,6 +37,8 @@ export const getBootstrapData = async () => {
 
   const response = await fetch(`${API_BASE_URL}/api/bootstrap`, {
     headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(30_000),
   });
   const payload = (await response.json().catch(() => null)) as
     | (BootstrapData & { message?: string })
@@ -54,6 +56,7 @@ export const getTrainingProgress = async () => {
   if (!token) throw new Error('Sesion no disponible.');
   const response = await fetch(`${API_BASE_URL}/api/bootstrap?scope=training`, {
     headers: { Authorization: `Bearer ${token}` }, cache: 'no-store',
+    signal: AbortSignal.timeout(20_000),
   });
   const data = await response.json().catch(() => null);
   if (!response.ok || !data) throw new Error(data?.message || 'No se pudo sincronizar la capacitacion.');
