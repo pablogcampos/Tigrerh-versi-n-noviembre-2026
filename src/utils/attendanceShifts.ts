@@ -4,8 +4,8 @@ export const attendanceShiftId = (sessionId: string, participantId: string, day:
   `att-shift-${encodeURIComponent(sessionId)}-${encodeURIComponent(participantId)}-${day}-${shift}`;
 
 const marked = (record: AttendanceRecord) => !['Seleccionar', 'Pendiente', ''].includes(record.estado_asistencia);
-const rank = (record: AttendanceRecord) => ['Asistió', 'Tardanza', 'Feriado'].includes(record.estado_asistencia) ? 3
-  : ['Baja', 'Desistió'].includes(record.estado_asistencia) ? 2 : marked(record) ? 1 : 0;
+const rank = (record: AttendanceRecord) => ['Baja', 'Desistió'].includes(record.estado_asistencia) ? 4
+  : ['Asistió', 'Tardanza', 'Feriado'].includes(record.estado_asistencia) ? 3 : marked(record) ? 1 : 0;
 
 // One daily outcome for legacy consumers. Either shift can satisfy attendance.
 export const dailyAttendance = (records: AttendanceRecord[]) => {
@@ -21,6 +21,10 @@ export const dailyAttendance = (records: AttendanceRecord[]) => {
   });
 };
 
+const registrationFormatter = new Intl.DateTimeFormat('es-PE', {
+  timeZone: 'America/Lima', day: '2-digit', month: '2-digit', year: 'numeric',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+});
 export const shiftAttendanceColumns = (records: AttendanceRecord[], sessionId: string, participantId: string) => {
   const result: Record<string, string> = {};
   for (let day = 1; day <= 5; day++) for (const shift of ['AM', 'PM', 'Sin turno'] as const) {
@@ -28,6 +32,10 @@ export const shiftAttendanceColumns = (records: AttendanceRecord[], sessionId: s
       r.dia === day && (r.turno || 'Sin turno') === shift)
       .sort((a, b) => String(b.fecha_registro).localeCompare(String(a.fecha_registro)))[0];
     result[`Día ${day} ${shift}`] = record?.estado_asistencia || '';
+    const registered = new Date(record?.fecha_registro || '');
+    result[`Día ${day} ${shift} - Registro (Perú)`] = Number.isNaN(registered.getTime()) ? '' :
+      registrationFormatter.format(registered);
+    result[`Día ${day} ${shift} - Origen`] = record?.propagado_desde ? 'Propagado automáticamente' : record ? 'Registro directo' : '';
   }
   return result;
 };

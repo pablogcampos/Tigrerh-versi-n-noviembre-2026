@@ -12,7 +12,10 @@ export const getScheduledTrainingDays = (_campaign: unknown): 5 | 10 => 5;
 export const isDayFiveSurveyEligible = (
   participant: { id?: unknown; training_session_id?: unknown; resultado_formacion?: unknown },
   attendance: Array<{ participant_id?: unknown; training_session_id?: unknown; dia?: unknown; estado_asistencia?: unknown }>,
-) => participant.resultado_formacion === 'Apto' && attendance.some((record) =>
+) => participant.resultado_formacion === 'Apto' && !attendance.some((record) =>
+  record.participant_id === participant.id && record.training_session_id === participant.training_session_id &&
+  Number(record.dia) >= 1 && Number(record.dia) <= 5 && ['Baja', 'Desistió'].includes(String(record.estado_asistencia))) &&
+  attendance.some((record) =>
   record.participant_id === participant.id && record.training_session_id === participant.training_session_id &&
   Number(record.dia) === 5 && record.estado_asistencia === 'Asistió');
 

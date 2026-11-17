@@ -70,7 +70,8 @@ test('five-day API flow, idempotency, manual control and legacy preservation', a
   let failCommit = false;
   t.mock.method(dataDb, 'runTransaction', async (callback: any) => {
     const writes: Array<() => Promise<unknown>> = [];
-    const result = await callback({ set: (ref: any, data: Data, options: any) => writes.push(() => ref.set(data, options)) });
+    const result = await callback({ get: (ref: any) => ref.get(),
+      set: (ref: any, data: Data, options: any) => writes.push(() => ref.set(data, options)) });
     if (failCommit) throw new Error('Commit unavailable');
     for (const write of writes) await write();
     return result;
@@ -164,6 +165,47 @@ test('five-day API flow, idempotency, manual control and legacy preservation', a
       assert.equal(rows('attendance').get(pmId)?.estado_asistencia, 'Faltó');
       failCommit = false;
       rows('attendance').delete(amId); rows('attendance').delete(pmId);
+    });
+    await t.test('AM/PM dropout propagates atomically to D5 and correction clears only its automatic marks', async () => {
+      const p = { ...participant, id: 'dropout' };
+      rows('participants').set(p.id, p);
+      rows('sessions').set('s', { ...session, fecha_inicio: '2026-11-13' });
+      const send = (estado_asistencia: string, turno = 'PM') => invoke(operationRoutes, '/attendance/bulk', 'put',
+        { body: { records: [{ ...day, id: 'client', participant_id: p.id, dia: 2, turno, estado_asistencia,
+          motivo_desercion: estado_asistencia === 'Baja' ? 'Herramientas' : '' }] } });
+      const baseId = 'att-shift-s-dropout-2-PM';
+      const before = { ...day, id: 'att-shift-s-dropout-2-AM', participant_id: p.id, dia: 2, turno: 'AM' };
+      rows('attendance').set(before.id, before);
+      const saved = await send('Baja');
+      assert.equal(saved.code, 200);
+      assert.equal(saved.payload.saved, 1);
+      assert.equal(saved.payload.records.length, 7);
+      assert.equal(rows('participants').get(p.id)?.estado_final, 'Desistió');
+      assert.deepEqual(rows('attendance').get(before.id), before);
+      for (let dia = 3; dia <= 5; dia++) for (const turno of ['AM', 'PM']) {
+        const record = rows('attendance').get(`att-shift-s-dropout-${dia}-${turno}`)!;
+        assert.equal(record.estado_asistencia, 'Baja');
+        assert.equal(record.propagado_desde, baseId);
+        assert.equal(record.motivo_desercion, 'Herramientas');
+        assert.equal(record.fecha_registro, rows('attendance').get(baseId)?.fecha_registro);
+      }
+      assert.equal(rows('attendance').get('att-shift-s-dropout-5-AM')?.fecha, '2026-11-19');
+      const size = rows('attendance').size;
+      await send('Baja');
+      assert.equal(rows('attendance').size, size);
+      failCommit = true;
+      assert.equal((await send('Asistió')).code, 503);
+      assert.equal(rows('attendance').get('att-shift-s-dropout-5-PM')?.estado_asistencia, 'Baja');
+      failCommit = false;
+      await send('Asistió');
+      assert.equal(rows('attendance').get('att-shift-s-dropout-5-PM')?.estado_asistencia, 'Seleccionar');
+      assert.equal(rows('participants').get(p.id)?.estado_final, 'En formación');
+      await send('Desistió', 'AM');
+      assert.equal(rows('attendance').get('att-shift-s-dropout-3-AM')?.estado_asistencia, 'Desistió');
+      // A separately recorded mark is preserved, even when the earlier terminal state remains effective.
+      assert.equal(rows('attendance').get(baseId)?.estado_asistencia, 'Asistió');
+      assert.equal(isDayFiveSurveyEligible(p, [...rows('attendance').values()]), false);
+      assert.deepEqual(rows('attendance').get('historical'), historical);
     });
     await t.test('manual disabling survives synchronization; early enabling is rejected', async () => {
       const survey = rows('surveys').get('srv-ojt-training-s')!;

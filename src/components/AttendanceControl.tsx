@@ -192,7 +192,10 @@ export default function AttendanceControl({
     setIsSavingAttendance(true); setSaveError(''); setShowSaveFeedback(false);
     try {
       await onSaveAttendanceShift(records);
-      setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !records.some((r) => r.id === id))));
+      setDrafts((current) => Object.fromEntries(Object.entries<AttendanceRecord>(current).filter(([id, pending]) =>
+        !records.some((r) => r.id === id || (['Baja', 'Desistió'].includes(r.estado_asistencia) &&
+          r.participant_id === pending.participant_id &&
+          pending.dia * 2 + (pending.turno === 'PM' ? 1 : 0) > r.dia * 2 + (r.turno === 'PM' ? 1 : 0))))));
       setSavedShift(turno); setShowSaveFeedback(true);
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'No se pudo guardar. Las marcas siguen pendientes.');

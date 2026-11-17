@@ -1,5 +1,6 @@
 import { raw, Router, type Response } from 'express';
 import { randomUUID } from 'node:crypto';
+import { planShiftContinuations, shiftId } from '../services/attendanceShiftPolicy.js';
 import { z } from 'zod';
 import { adminStorage } from '../firebaseAdmin.js';
 import { dataDb as adminDb, DELETE_FIELD } from '../hybridDb.js';
@@ -257,11 +258,35 @@ router.put(
         const { evidencia_disponible: _available, ...data } = record;
         savedRecords.push({ ...data, id, registrado_por: req.user!.uid, fecha_registro: new Date().toISOString() });
       }
-      // All marks in a shift are committed together; retries reuse the same IDs.
-      await adminDb.runTransaction(async (transaction) => {
-        for (const record of savedRecords) transaction.set(adminDb.collection('attendance').doc(record.id), record, { merge: true });
-      });
       const people = new Map(savedRecords.map((record) => [String(record.participant_id), String(record.training_session_id)]));
+      let committedRecords: Record<string, any>[] = [];
+      // Lock each participant before reading both shifts. The marks and continuations commit together.
+      await adminDb.runTransaction(async (transaction) => {
+        const plans: Array<{ records: Record<string, any>[]; participant: Record<string, any>; update: boolean }> = [];
+        for (const [id, sessionId] of [...people].sort(([a], [b]) => a.localeCompare(b))) {
+          const participantRef = adminDb.collection('participants').doc(id);
+          const participant: Record<string, any> = { ...((await transaction.get(participantRef)).data()), id };
+          const previous: Record<string, any>[] = [];
+          for (let day = 1; day <= 5; day++) for (const turno of ['AM', 'PM']) {
+            const document = await transaction.get(adminDb.collection('attendance').doc(shiftId(sessionId, id, day, turno)));
+            if (document.exists) previous.push({ ...document.data(), id: document.id });
+          }
+          const session = sessions.get(sessionId)!;
+          const plan = planShiftContinuations(previous, savedRecords.filter((record) => record.participant_id === id),
+            (day) => getBusinessDay(session.fecha_inicio, day));
+          const update = !['Alta confirmada', 'No alta'].includes(String(participant.estado_alta)) &&
+            (plan.hasDropout || isDropoutAttendance(participant.estado_final));
+          plans.push({ records: plan.writes, participant: { ...participant,
+            estado_final: plan.hasDropout ? 'Desistió' : 'En formación' }, update });
+        }
+        for (const plan of plans) {
+          for (const record of plan.records) transaction.set(adminDb.collection('attendance').doc(record.id), record, { merge: true });
+          if (plan.update) {
+            transaction.set(adminDb.collection('participants').doc(plan.participant.id), { estado_final: plan.participant.estado_final }, { merge: true });
+          }
+        }
+        committedRecords = plans.flatMap((plan) => plan.records);
+      });
       for (const [id, sessionId] of people) {
         try {
           const participant = await adminDb.collection('participants').doc(id).get();
@@ -271,7 +296,7 @@ router.put(
           console.error('Survey synchronization after shift save:', error);
         }
       }
-      res.json({ ok: true, saved: savedRecords.length, records: savedRecords }); return;
+      res.json({ ok: true, saved: savedRecords.length, records: committedRecords }); return;
     }
     const writer = adminDb.bulkWriter();
     parsed.data.records.forEach((record) => {

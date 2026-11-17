@@ -243,6 +243,7 @@ export type AttendanceStatus = 'Seleccionar' | 'Asistió' | 'Tardanza' | 'Faltó
 
 export interface AttendanceRecord {
   turno?: 'AM' | 'PM';
+  propagado_desde?: string;
   id: string;
   participant_id: string;
   training_session_id: string;

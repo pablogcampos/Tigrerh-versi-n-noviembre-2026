@@ -1243,7 +1243,8 @@ export default function App() {
 
   const handleSaveAttendanceShift = async (records: AttendanceRecord[]) => {
     const result = await persistAttendanceBatch(records);
-    if (result.saved !== records.length || !result.records || result.records.length !== records.length) {
+    if (result.saved !== records.length || !result.records ||
+      !records.every((record) => result.records!.some((saved) => saved.id === record.id))) {
       throw new Error('No se confirmaron todas las asistencias. Conserva las marcas y vuelve a intentar.');
     }
     const saved = new Map(result.records.map((record) => [record.id, record]));

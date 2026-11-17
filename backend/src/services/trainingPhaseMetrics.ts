@@ -26,10 +26,19 @@ export const calculatePhaseMetrics = (
   const altasD10Ids = new Set<string>();
   const altasFinalIds = new Set<string>();
   const finalDayIds = new Set<string>();
+  const dropoutDay = new Map<string, number>();
+  for (const record of attendanceRecords) {
+    if (!participantIds.has(record.participant_id) || record.dia < 1 ||
+      record.dia > (finalDayByParticipant?.get(record.participant_id) || 5) ||
+      !['Baja', 'Desistió'].includes(record.estado_asistencia || '')) continue;
+    dropoutDay.set(record.participant_id, Math.min(dropoutDay.get(record.participant_id) ?? Infinity, record.dia));
+  }
 
   attendanceRecords.forEach((record) => {
     if (!participantIds.has(record.participant_id)) return;
     const finalDay = finalDayByParticipant?.get(record.participant_id) || 5;
+    const desertionDay = dropoutDay.get(record.participant_id);
+    if (desertionDay !== undefined && (record.dia > desertionDay || record.dia === finalDay)) return;
     if (record.dia === 10 && isAttendedAttendance(record.estado_asistencia)) altasD10Ids.add(record.participant_id);
     if (record.dia === finalDay && isAttendedAttendance(record.estado_asistencia)) altasFinalIds.add(record.participant_id);
     if (!isPresentAttendance(record.estado_asistencia)) return;
@@ -51,7 +60,8 @@ export const calculatePhaseMetrics = (
   const d5Ids = attendantsByDay.get(5) || new Set<string>();
   const d6Ids = attendantsByDay.get(6) || new Set<string>();
   const d10Ids = attendantsByDay.get(10) || new Set<string>();
-  const desercionesFinales = Math.max(d1Ids.size - finalDayIds.size, 0);
+  const cohort = new Set([...d1Ids, ...dropoutDay.keys()]);
+  const desercionesFinales = [...cohort].filter((id) => !finalDayIds.has(id)).length;
 
   return {
     d1Ids,
@@ -67,6 +77,6 @@ export const calculatePhaseMetrics = (
     retencionCapacitacion: d1Ids.size > 0 ? Math.round((d5Ids.size / d1Ids.size) * 100) : 0,
     retencionOjt: d6Ids.size > 0 ? Math.round((d10Ids.size / d6Ids.size) * 100) : 0,
     desercionesFinales,
-    desercionFinalRate: d1Ids.size > 0 ? Math.round((desercionesFinales / d1Ids.size) * 100) : 0,
+    desercionFinalRate: cohort.size > 0 ? Math.round((desercionesFinales / cohort.size) * 100) : 0,
   };
 };
