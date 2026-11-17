@@ -25,17 +25,49 @@ const registrationFormatter = new Intl.DateTimeFormat('es-PE', {
   timeZone: 'America/Lima', day: '2-digit', month: '2-digit', year: 'numeric',
   hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
 });
+const isDropout = (record?: AttendanceRecord) => ['Baja', 'Desistió'].includes(record?.estado_asistencia || '');
+
+// Project terminal states into pending slots, including legacy records without a shift.
+// These are display records only: original attendance and timestamps are not rewritten.
+export const attendanceShiftView = (records: AttendanceRecord[], sessionId: string, turno: 'AM' | 'PM') => {
+  const scoped = records.filter((r) => r.training_session_id === sessionId && r.dia >= 1 && r.dia <= 5);
+  const byId = new Map(scoped.map((r) => [r.id, r]));
+  const current = scoped.filter((r) => !r.propagado_desde || !byId.has(r.propagado_desde) || isDropout(byId.get(r.propagado_desde)));
+  const people = new Map<string, AttendanceRecord[]>();
+  for (const record of current) {
+    const group = people.get(record.participant_id) || [];
+    group.push(record); people.set(record.participant_id, group);
+  }
+  const order = (r: AttendanceRecord) => r.dia * 2 + (r.turno === 'PM' ? 1 : 0);
+  const result: AttendanceRecord[] = [];
+  for (const [participantId, group] of people) {
+    const origins = group.filter(isDropout).sort((a, b) => order(a) - order(b));
+    for (let dia = 1; dia <= 5; dia++) {
+      const direct = group.filter((r) => r.dia === dia && r.turno === turno)
+        .sort((a, b) => String(b.fecha_registro).localeCompare(String(a.fecha_registro)))[0];
+      const origin = origins.find((r) => order(r) <= dia * 2 + (turno === 'PM' ? 1 : 0));
+      if (direct && marked(direct)) result.push(direct);
+      else if (origin) result.push({ ...origin,
+        dia, turno, propagado_desde: origin.propagado_desde || origin.id });
+      else if (direct) result.push(direct);
+    }
+  }
+  return result;
+};
+
 export const shiftAttendanceColumns = (records: AttendanceRecord[], sessionId: string, participantId: string) => {
   const result: Record<string, string> = {};
-  for (let day = 1; day <= 5; day++) for (const shift of ['AM', 'PM', 'Sin turno'] as const) {
-    const record = records.filter((r) => r.training_session_id === sessionId && r.participant_id === participantId &&
-      r.dia === day && (r.turno || 'Sin turno') === shift)
+  const scoped = records.filter((r) => r.training_session_id === sessionId && r.participant_id === participantId);
+  const views = { AM: attendanceShiftView(scoped, sessionId, 'AM'), PM: attendanceShiftView(scoped, sessionId, 'PM') };
+  for (let day = 1; day <= 5; day++) for (const shift of ['AM', 'PM'] as const) {
+    const projected = views[shift].find((r) => r.dia === day);
+    const legacy = scoped.filter((r) => r.dia === day && !r.turno && marked(r))
       .sort((a, b) => String(b.fecha_registro).localeCompare(String(a.fecha_registro)))[0];
-    result[`Día ${day} ${shift}`] = record?.estado_asistencia || '';
+    const record = projected && marked(projected) ? projected : legacy;
     const registered = new Date(record?.fecha_registro || '');
-    result[`Día ${day} ${shift} - Registro (Perú)`] = Number.isNaN(registered.getTime()) ? '' :
-      registrationFormatter.format(registered);
-    result[`Día ${day} ${shift} - Origen`] = record?.propagado_desde ? 'Propagado automáticamente' : record ? 'Registro directo' : '';
+    const timestamp = Number.isNaN(registered.getTime()) ? '' : registrationFormatter.format(registered);
+    const prefix = record?.propagado_desde ? 'Arrastre: ' : record && !record.turno ? 'Sin turno: ' : '';
+    result[`Día ${day} ${shift}`] = record ? `${prefix}${record.estado_asistencia}${timestamp ? ' | ' + timestamp : ''}` : '';
   }
   return result;
 };

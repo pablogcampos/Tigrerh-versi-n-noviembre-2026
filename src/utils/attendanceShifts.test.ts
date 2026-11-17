@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { attendanceShiftId, dailyAttendance, dropoutShiftCounts, shiftAttendanceColumns } from './attendanceShifts';
+import { attendanceShiftId, attendanceShiftView, dailyAttendance, dropoutShiftCounts, shiftAttendanceColumns } from './attendanceShifts';
 import { matchesSurveyResponseFilters } from './surveyFilters';
 import { isDayFiveSurveyEligible } from '../../backend/src/services/trainingSchedule';
 import type { AttendanceRecord } from '../types';
@@ -27,16 +27,33 @@ test('first dropout is counted once by day and shift, preserving unknown histori
     { ...mark('afternoon', 'PM', 'Desistió'), participant_id: 'r' }];
   assert.deepEqual(dropoutShiftCounts(records).map(r => r.cantidad), [1, 1, 1]);
 });
-test('exports keep legacy and both shifts in separate labeled columns', () => {
+test('exports use only ten shift columns, with timestamp and origin inside each cell', () => {
   const result = shiftAttendanceColumns([mark('old', undefined, 'Feriado'), mark('am', 'AM'), mark('pm', 'PM', 'Faltó')], 's', 'p');
-  assert.equal(result['Día 5 AM'], 'Asistió');
-  assert.equal(result['Día 5 PM'], 'Faltó');
-  assert.equal(result['Día 5 Sin turno'], 'Feriado');
-  assert.equal(Object.keys(result).length, 45);
-  assert.match(result['Día 5 AM - Registro (Perú)'], /16\/11\/2026.*10:00:00/);
-  assert.equal(result['Día 5 AM - Origen'], 'Registro directo');
+  assert.match(result['Día 5 AM'], /^Asistió.*16\/11\/2026.*10:00:00/);
+  assert.match(result['Día 5 PM'], /^Faltó/);
+  assert.equal(Object.keys(result).length, 10);
+  const legacy = shiftAttendanceColumns([mark('old', undefined, 'Feriado')], 's', 'p');
+  assert.match(legacy['Día 5 AM'], /^Sin turno: Feriado/);
+  assert.match(legacy['Día 5 PM'], /^Sin turno: Feriado/);
   const automatic = shiftAttendanceColumns([{ ...mark('pm', 'PM', 'Baja'), propagado_desde: 'am' }], 's', 'p');
-  assert.equal(automatic['Día 5 PM - Origen'], 'Propagado automáticamente');
+  assert.match(automatic['Día 5 PM'], /^Arrastre: Baja/);
+});
+
+test('legacy and pending dropout changes appear through D5 in either shift without mutating data', () => {
+  for (const turno of [undefined, 'AM', 'PM'] as const) {
+    const origin = { ...mark('origin', turno, 'Desistió'), dia: 2 };
+    const records = [origin, { ...mark('empty', 'AM', 'Seleccionar'), dia: 4 }];
+    const before = JSON.stringify(records);
+    for (const shift of ['AM', 'PM'] as const) {
+      const view = attendanceShiftView(records, 's', shift);
+      for (let day = 3; day <= 5; day++) assert.equal(view.find((r) => r.dia === day)?.estado_asistencia, 'Desistió');
+      assert.equal(view.some((r) => r.dia === 1), false);
+    }
+    assert.equal(JSON.stringify(records), before);
+    assert.equal(attendanceShiftView(records, 'another', 'AM').length, 0);
+  }
+  const corrected = [mark('origin', 'AM'), { ...mark('auto', 'PM', 'Desistió'), propagado_desde: 'origin' }];
+  assert.equal(attendanceShiftView(corrected, 's', 'PM').length, 0);
 });
 
 test('a terminal shift impacts daily outcome, dashboard and eligibility despite presence in another shift', () => {

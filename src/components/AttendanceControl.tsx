@@ -1,4 +1,4 @@
-import { attendanceShiftId, shiftAttendanceColumns } from '../utils/attendanceShifts';
+import { attendanceShiftId, attendanceShiftView, shiftAttendanceColumns } from '../utils/attendanceShifts';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -202,10 +202,10 @@ export default function AttendanceControl({
     } finally { setIsSavingAttendance(false); }
   };
   const visibleAttendance = useMemo(() => {
-    const saved = attendance.filter((record) => record.training_session_id === session.id && record.turno === selectedShift);
-    const pending = Object.values<AttendanceRecord>(drafts).filter((record) => record.turno === selectedShift);
+    const saved = attendance.filter((record) => record.training_session_id === session.id);
+    const pending = Object.values<AttendanceRecord>(drafts);
     const pendingIds = new Set(pending.map((record) => record.id));
-    return [...saved.filter((record) => !pendingIds.has(record.id)), ...pending];
+    return attendanceShiftView([...saved.filter((record) => !pendingIds.has(record.id)), ...pending], session.id, selectedShift);
   }, [attendance, drafts, session.id, selectedShift]);
   const hasOjt = hasCampaignOjt(session.campaña);
   const showEvaluation = phase === 'initial' || !hasOjt;

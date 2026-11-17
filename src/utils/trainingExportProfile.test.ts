@@ -23,8 +23,8 @@ test('training export preserves recruiter profiles, filters, historical rows and
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(reopened.Sheets.Postulantes, { defval: '' });
   const headers = XLSX.utils.sheet_to_json<unknown[]>(reopened.Sheets.Postulantes, { header: 1 })[0];
   assert.deepEqual(headers, TRAINING_EXPORT_HEADERS);
-  assert.equal(headers.length, 53);
-  assert.ok(headers.includes('Día 5 PM - Registro (Perú)'));
+  assert.equal(headers.length, 18);
+  assert.ok(headers.includes('Día 5 PM'));
   assert.equal(headers.at(-2), 'Nota del examen');
   assert.equal(headers.at(-1), 'Perfil del ejecutivo');
   assert.equal(rows.length, 105);
@@ -32,9 +32,8 @@ test('training export preserves recruiter profiles, filters, historical rows and
     assert.equal(rows[i]['Perfil del ejecutivo'], people[i].puesto ?? '');
     assert.equal(rows[i]['Nombre del postulante'], `Person ${i} Test`);
   }
-  assert.equal(rows[0]['Día 5 AM'], 'Asistió');
-  assert.equal(rows[0]['Día 5 PM'], 'Desistió');
-  assert.match(String(rows[0]['Día 5 PM - Registro (Perú)']), /15\/10\/2026.*15:30:05/);
+  assert.match(String(rows[0]['Día 5 AM']), /^Asistió/);
+  assert.match(String(rows[0]['Día 5 PM']), /^Desistió.*15\/10\/2026.*15:30:05/);
   assert.equal(rows[0]['Desistió (Sí/No)'], 'Sí');
   assert.equal(rows[0]['Nota del examen'], 0);
   assert.equal(JSON.stringify({ people, attendance }), before);
