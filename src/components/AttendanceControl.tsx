@@ -1531,7 +1531,7 @@ export default function AttendanceControl({
 
                         return (
                           <td key={dayNum} className={`p-2 text-center ${isCurrentDay ? 'bg-indigo-50/20' : ''}`}>
-                            {legacy && <span className="block text-[10px] text-slate-500 mb-1">Sin turno: {legacy.estado_asistencia}</span>}
+                            {legacy && !record?.turno && <span title="Registro histórico diario, sin asignación AM/PM." className="block text-[10px] text-slate-500 mb-1">Registro diario</span>}
                             {isDayEditLocked && !isCurrentDay ? (
                               // Passive static display
                               record ? (

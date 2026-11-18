@@ -27,7 +27,7 @@ const registrationFormatter = new Intl.DateTimeFormat('es-PE', {
 });
 const isDropout = (record?: AttendanceRecord) => ['Baja', 'Desistió'].includes(record?.estado_asistencia || '');
 
-// Project terminal states into pending slots, including legacy records without a shift.
+// Preserve daily legacy marks as fallbacks, without inventing an AM/PM assignment.
 // These are display records only: original attendance and timestamps are not rewritten.
 export const attendanceShiftView = (records: AttendanceRecord[], sessionId: string, turno: 'AM' | 'PM') => {
   const scoped = records.filter((r) => r.training_session_id === sessionId && r.dia >= 1 && r.dia <= 5);
@@ -43,12 +43,16 @@ export const attendanceShiftView = (records: AttendanceRecord[], sessionId: stri
   for (const [participantId, group] of people) {
     const origins = group.filter(isDropout).sort((a, b) => order(a) - order(b));
     for (let dia = 1; dia <= 5; dia++) {
-      const direct = group.filter((r) => r.dia === dia && r.turno === turno)
+      const direct = group.filter((r) => Number(r.dia) === dia && r.turno === turno)
+        .sort((a, b) => String(b.fecha_registro).localeCompare(String(a.fecha_registro)) ||
+          Number(marked(b)) - Number(marked(a)))[0];
+      const legacy = group.filter((r) => Number(r.dia) === dia && !r.turno && marked(r))
         .sort((a, b) => String(b.fecha_registro).localeCompare(String(a.fecha_registro)))[0];
       const origin = origins.find((r) => order(r) <= dia * 2 + (turno === 'PM' ? 1 : 0));
       if (direct && marked(direct)) result.push(direct);
       else if (origin) result.push({ ...origin,
         dia, turno, propagado_desde: origin.propagado_desde || origin.id });
+      else if (legacy) result.push({ ...legacy, dia });
       else if (direct) result.push(direct);
     }
   }
@@ -66,7 +70,7 @@ export const shiftAttendanceColumns = (records: AttendanceRecord[], sessionId: s
     const record = projected && marked(projected) ? projected : legacy;
     const registered = new Date(record?.fecha_registro || '');
     const timestamp = Number.isNaN(registered.getTime()) ? '' : registrationFormatter.format(registered);
-    const prefix = record?.propagado_desde ? 'Arrastre: ' : record && !record.turno ? 'Sin turno: ' : '';
+    const prefix = record?.propagado_desde ? 'Arrastre: ' : record && !record.turno ? 'Registro diario: ' : '';
     result[`Día ${day} ${shift}`] = record ? `${prefix}${record.estado_asistencia}${timestamp ? ' | ' + timestamp : ''}` : '';
   }
   return result;

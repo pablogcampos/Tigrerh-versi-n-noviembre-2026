@@ -33,8 +33,8 @@ test('exports use only ten shift columns, with timestamp and origin inside each 
   assert.match(result['Día 5 PM'], /^Faltó/);
   assert.equal(Object.keys(result).length, 10);
   const legacy = shiftAttendanceColumns([mark('old', undefined, 'Feriado')], 's', 'p');
-  assert.match(legacy['Día 5 AM'], /^Sin turno: Feriado/);
-  assert.match(legacy['Día 5 PM'], /^Sin turno: Feriado/);
+  assert.match(legacy['Día 5 AM'], /^Registro diario: Feriado/);
+  assert.match(legacy['Día 5 PM'], /^Registro diario: Feriado/);
   const automatic = shiftAttendanceColumns([{ ...mark('pm', 'PM', 'Baja'), propagado_desde: 'am' }], 's', 'p');
   assert.match(automatic['Día 5 PM'], /^Arrastre: Baja/);
 });
@@ -54,6 +54,24 @@ test('legacy and pending dropout changes appear through D5 in either shift witho
   }
   const corrected = [mark('origin', 'AM'), { ...mark('auto', 'PM', 'Desistió'), propagado_desde: 'origin' }];
   assert.equal(attendanceShiftView(corrected, 's', 'PM').length, 0);
+});
+
+test('daily historical attendance remains visible in AM and PM without overwriting explicit shift marks', () => {
+  for (const status of ['Asistió', 'Faltó', 'Tardanza', 'Descanso médico', 'Feriado'] as const) {
+    const legacy = mark('daily', undefined, status);
+    const records = [legacy, mark('empty', 'AM', 'Seleccionar')];
+    const before = JSON.stringify(records);
+    for (const turno of ['AM', 'PM'] as const) {
+      const view = attendanceShiftView(records, 's', turno);
+      assert.equal(view[0].estado_asistencia, status);
+      assert.equal(view[0].id, 'daily');
+      assert.equal(view[0].turno, undefined);
+    }
+    assert.equal(JSON.stringify(records), before);
+    const am = mark('saved-am', 'AM', 'Faltó');
+    assert.equal(attendanceShiftView([...records, am], 's', 'AM')[0].id, 'saved-am');
+    assert.equal(attendanceShiftView([...records, am], 's', 'PM')[0].id, 'daily');
+  }
 });
 
 test('a terminal shift impacts daily outcome, dashboard and eligibility despite presence in another shift', () => {
