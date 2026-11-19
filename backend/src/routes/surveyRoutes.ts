@@ -8,6 +8,7 @@ import {
 } from '../utils/authMiddleware.js';
 
 import { isDayFiveSurveyEligible, isHiddenFormationCampaign } from '../services/trainingSchedule.js';
+import { ensureOperationsSurvey, OPERATIONS_SURVEY_ID } from '../services/surveyAutomationService.js';
 
 const hasEligibleDayFiveParticipant = async (sessionId: string) => {
   const session = await adminDb.collection('sessions').doc(sessionId).get();
@@ -56,6 +57,11 @@ router.post(
       return;
     }
     const survey = { ...parsed.data, survey_type: parsed.data.survey_type || 'inicial', token: normalizeSurveyToken(parsed.data.token), created_by_id: req.user!.uid };
+    if (survey.survey_type === 'operaciones') {
+      const general = await ensureOperationsSurvey({}, '', req.user!.uid);
+      res.status(409).json({ message: 'Operaciones utiliza un único enlace general. Gestiona su estado en Configuración de Enlaces.', survey: general });
+      return;
+    }
     if (survey.survey_type === 'inicial' || survey.survey_type === 'ojt') {
       if (!survey.training_session_id) {
         res.status(400).json({ message: 'La encuesta inicial requiere una capacitación vinculada.' });
@@ -78,10 +84,6 @@ router.post(
         return;
       }
     }
-    if (survey.survey_type === 'operaciones' && !survey.campaña) {
-      res.status(400).json({ message: 'La encuesta de Operaciones requiere una campaña.' });
-      return;
-    }
     if (await findSurveyWithToken(survey.token)) {
       res.status(409).json({ message: 'El token del enlace ya pertenece a otra encuesta.' });
       return;
@@ -92,7 +94,6 @@ router.post(
       if (item.estado === 'Eliminada') return false;
       if ((item.survey_type || 'inicial') !== survey.survey_type) return false;
       if (survey.survey_type === 'ojt') return !item.ojt_module_id && item.training_session_id === survey.training_session_id;
-      if (survey.survey_type === 'operaciones') return item.campaña === survey.campaña && String(item.subcampaña || '') === String(survey.subcampaña || '');
       return item.training_session_id === survey.training_session_id;
     });
     if (duplicate) {
@@ -158,6 +159,10 @@ router.patch(
     }
 
     const survey = surveyDoc.data();
+    if (req.params.surveyId === OPERATIONS_SURVEY_ID && parsed.data.status === 'Eliminada') {
+      res.status(409).json({ message: 'El enlace general se puede deshabilitar o cerrar, no eliminar.' });
+      return;
+    }
     if (req.user!.rol === 'Reclutador') {
       const type = survey?.survey_type || 'inicial';
       const sessionIds = type === 'ojt' && survey?.ojt_module_id

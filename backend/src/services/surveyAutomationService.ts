@@ -130,21 +130,21 @@ export const ensureOjtSurvey = async (session: RecordData, module: RecordData, c
   return synchronized;
 };
 
+export const OPERATIONS_SURVEY_ID = 'srv-operations-global';
 export const buildOperationsSurvey = (
   session: RecordData,
   confirmationId: string,
   createdById = '',
 ) => {
-  const id = `srv-ope-${confirmationId}`;
+  const id = OPERATIONS_SURVEY_ID;
   return {
     id,
-    training_session_id: String(session.id),
-    source_confirmation_id: confirmationId,
-    codigo_generacion: String(session.generation_code || session.nombre_generacion || session.id),
-    campaña: String(session.campaña || ''),
+    training_session_id: '',
+    codigo_generacion: 'Encuesta general de Operaciones',
+    campaña: 'Todas las campañas',
     formador_id: '',
     formador_nombre: '',
-    supervisor_nombres: operationSupervisors(String(session.campaña || '')),
+    supervisor_nombres: [],
     estado: 'Deshabilitada',
     token: `OPE-${randomUUID()}`.toUpperCase(),
     survey_type: 'operaciones',
@@ -160,5 +160,9 @@ export const ensureOperationsSurvey = async (
   createdById = '',
 ) => {
   const survey = buildOperationsSurvey(session, confirmationId, createdById);
+  const existing = await adminDb.collection('surveys').doc(survey.id).get();
+  if (existing.exists) return existing.data();
+  const previous = await adminDb.collection('surveys').where('survey_type', '==', 'operaciones').get();
+  if (previous.docs.some((doc) => doc.data().estado === 'Habilitada')) survey.estado = 'Habilitada';
   return createIfMissing('surveys', survey.id, survey);
 };

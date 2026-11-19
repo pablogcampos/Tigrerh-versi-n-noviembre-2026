@@ -7,7 +7,7 @@ import {
 } from '../utils/authMiddleware.js';
 
 import { isHiddenFormationCampaign, getInitialTrainingEndDate } from '../services/trainingSchedule.js';
-import { ensureDayFiveOjtSurvey } from '../services/surveyAutomationService.js';
+import { ensureDayFiveOjtSurvey, ensureOperationsSurvey, OPERATIONS_SURVEY_ID } from '../services/surveyAutomationService.js';
 
 const router = Router();
 const collectionCache = new Map<string, {
@@ -142,6 +142,12 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response) =>
     ]);
 
     const allSurveys: Array<Record<string, unknown>> = [...loadedSurveys];
+    if (!trainingProgressOnly && canSeeAllSessions &&
+      !allSurveys.some((survey) => survey.id === OPERATIONS_SURVEY_ID) &&
+      allSurveys.some((survey) => survey.survey_type === 'operaciones')) {
+      const general = await ensureOperationsSurvey({}, '', user.uid);
+      if (general) allSurveys.push(general);
+    }
     const scopedSessions = canSeeAllSessions
       ? allSessions
       : allSessions.filter((session) =>

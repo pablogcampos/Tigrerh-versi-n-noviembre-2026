@@ -314,14 +314,16 @@ export default function Encuestas({
 
   const sectionSurveys = useMemo(() => visibleSurveys.filter((survey) => (survey.survey_type || 'inicial') === surveySection), [visibleSurveys, surveySection]);
   const filtersApplyToResponses = ['dashboard', 'comentarios', 'respuestas'].includes(activeTab);
-  const rawFilteredSurveys = useMemo(() => filterSurveys(sectionSurveys, sessions, {
+  const rawFilteredSurveys = useMemo(() => surveySection === 'operaciones' && !filtersApplyToResponses
+    ? sectionSurveys.filter((survey) => survey.id === 'srv-operations-global')
+    : filterSurveys(sectionSurveys, sessions, {
     campaign: filterCampaign, generation: filterGenerator, trainer: filterTrainer,
     type: '', from: filtersApplyToResponses ? '' : dateStart, to: filtersApplyToResponses ? '' : dateEnd,
   }).filter((survey) =>
     (!filterSubcampaign || normalizeFilterValue(survey.subcampaña) === normalizeFilterValue(filterSubcampaign)) &&
     (survey.survey_type !== 'operaciones' || !filterTrainer || (survey.supervisor_nombres || [])
       .some((name) => normalizeFilterValue(name) === normalizeFilterValue(filterTrainer)))
-  ), [sectionSurveys, sessions, filterCampaign, filterGenerator, filterTrainer, filterSubcampaign, dateStart, dateEnd, filtersApplyToResponses]);
+  ), [sectionSurveys, surveySection, sessions, filterCampaign, filterGenerator, filterTrainer, filterSubcampaign, dateStart, dateEnd, filtersApplyToResponses]);
 
   const filteredSurveyGroups = useMemo(() => {
     const groups = new Map<string, { survey: TrainingSurvey; surveyIds: string[] }>();
@@ -1013,7 +1015,7 @@ export default function Encuestas({
 
         {/* Header CTA & Actions */}
         <div className="flex flex-wrap items-center gap-2">
-          {permissions[currentUser.rol]?.canCreateSurvey && (
+          {permissions[currentUser.rol]?.canCreateSurvey && surveySection !== 'operaciones' && (
             <button
               onClick={() => setIsCreateModalOpen(true)}
               className="bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-bold text-xs rounded-xl px-4 py-2.5 flex items-center gap-2 transition-all cursor-pointer shadow-sm shadow-fuchsia-950/10"
@@ -2051,7 +2053,7 @@ export default function Encuestas({
               <div className="space-y-1">
                 <label className="text-slate-500 font-bold block">Sección de encuesta</label>
                 <select value={createSurveyType} onChange={(event) => { setCreateSurveyType(event.target.value as SurveyType); setSelectedSessionId(''); setSelectedOjtModuleId(''); setTokenInput(''); }} className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs rounded-xl px-3 py-2.5 font-semibold outline-hidden focus:ring-1 focus:ring-fuchsia-500">
-                  <option value="inicial">Capacitación Inicial</option><option value="ojt">Acompañamiento OJT</option><option value="operaciones">Experiencia en Operaciones</option>
+                  <option value="inicial">Capacitación Inicial</option><option value="ojt">Acompañamiento OJT</option>
                 </select>
               </div>
               {/* Select Capacitacion */}

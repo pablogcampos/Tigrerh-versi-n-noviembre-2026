@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { createRequire } from 'node:module';
 import { dataDb } from '../../backend/src/hybridDb';
 import { publicSurveyRoutes } from '../../backend/src/routes/publicSurveyRoutes';
+import { ensureOperationsSurvey } from '../../backend/src/services/surveyAutomationService';
 import { findParticipantSurveyResponse, getSurveyParticipants } from './surveyCompletion';
 import type { AttendanceRecord, OjtModule, Participant, TrainingSession, TrainingSurvey } from '../types';
 
@@ -138,6 +139,33 @@ test('public survey routes: availability, duplicates and anonymous operations', 
       assert.equal((await invoke('/:token/responses', 'OPS', payload)).status, 409);
     }
     assert.equal(store.responses.size, 2);
+  });
+  await t.test('one general operations link survives multiple altas and stores no participant data', async () => {
+    reset('Capacitación cerrada');
+    const previous = structuredClone(store.surveys.get('ops'));
+    const first = await ensureOperationsSurvey(session, 'alta-1', 'admin');
+    const second = await ensureOperationsSurvey({ id: 'another', campaña: 'GPON' }, 'alta-2', 'admin');
+    assert.equal(first.id, 'srv-operations-global');
+    assert.equal(first.token, second.token);
+    assert.equal(first.training_session_id, '');
+    assert.equal(first.source_confirmation_id, undefined);
+    assert.deepEqual(store.surveys.get('ops'), previous);
+    for (let index = 0; index < 2; index++) {
+      const meta = await invoke('/:token/metadata', first.token);
+      assert.equal(meta.status, 200);
+      assert.deepEqual(meta.body.survey.supervisor_nombres, []);
+      const saved = await invoke('/:token/responses', first.token, {
+        ...ratings, submission_nonce: meta.body.submission_nonce,
+        dni: '00123456', participant_id: 'p1', nombre_ejecutivo: 'Must not persist', email: 'test@example.com',
+      });
+      assert.equal(saved.status, 201);
+      for (const field of ['dni', 'participant_id', 'nombre_ejecutivo', 'email', 'training_session_id', 'source_confirmation_id']) {
+        assert.equal(field in saved.body.response, false);
+      }
+    }
+    store.surveys.get(first.id)!.estado = 'Deshabilitada';
+    assert.equal((await ensureOperationsSurvey(session, 'alta-3')).estado, 'Deshabilitada');
+    assert.equal((await invoke('/:token/metadata', first.token)).status, 410);
   });
   await t.test('survey synchronization reads late answers and preserves the existing user scope', async (subtest) => {
     const { getPostgresPool, closePostgresPool } = await import('../../backend/src/postgres');

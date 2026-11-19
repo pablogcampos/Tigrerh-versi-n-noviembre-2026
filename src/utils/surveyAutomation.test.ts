@@ -23,9 +23,12 @@ test('automatic surveys preserve their intended identity and anonymity', () => {
     { id: 'srv-initial-session-1', token: 'INI-CAP-CU-01', type: 'inicial', status: 'Deshabilitada' });
   assert.deepEqual({ id: ojt.id, token: ojt.token, type: ojt.survey_type, module: ojt.ojt_module_id, session: ojt.training_session_id, group: ojt.codigo_generacion, generations: ojt.grupo_generaciones, campaigns: ojt.grupo_campañas },
     { id: 'srv-ojt-ojt-1', token: 'OJT-OJT-1', type: 'ojt', module: 'ojt-1', session: '', group: 'OJT Culqi', generations: ['CAP-CU-01'], campaigns: ['Culqi'] });
-  assert.equal(operations.id, 'srv-ope-confirmation-1');
+  assert.equal(operations.id, 'srv-operations-global');
   assert.equal(operations.survey_type, 'operaciones');
   assert.equal('dni' in operations, false);
   assert.equal('participant_id' in operations, false);
-  assert.equal(operations.source_confirmation_id, 'confirmation-1');
+  assert.equal('source_confirmation_id' in operations, false);
+  assert.equal(operations.training_session_id, '');
+  assert.deepEqual(operations.supervisor_nombres, []);
+  assert.equal(buildOperationsSurvey({ id: 'other', campaña: 'GPON' }, 'another').id, operations.id);
 });
