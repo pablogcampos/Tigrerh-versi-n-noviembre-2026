@@ -68,9 +68,12 @@ test('five-day API flow, idempotency, manual control and legacy preservation', a
     set: (ref: any, data: Data, options: any) => ref.set(data, options), close: async () => {},
   }) as any);
   let failCommit = false;
+  let batchReads = 0, batchWrites = 0;
   t.mock.method(dataDb, 'runTransaction', async (callback: any) => {
     const writes: Array<() => Promise<unknown>> = [];
     const result = await callback({ get: (ref: any) => ref.get(),
+      getAll: (refs: any[]) => { batchReads++; return Promise.all(refs.map((ref) => ref.get())); },
+      setAll: (records: any[]) => { batchWrites++; records.forEach(({ref, data}) => writes.push(() => ref.set(data))); },
       set: (ref: any, data: Data, options: any) => writes.push(() => ref.set(data, options)) });
     if (failCommit) throw new Error('Commit unavailable');
     for (const write of writes) await write();
@@ -206,6 +209,29 @@ test('five-day API flow, idempotency, manual control and legacy preservation', a
       assert.equal(rows('attendance').get(baseId)?.estado_asistencia, 'Asistió');
       assert.equal(isDayFiveSurveyEligible(p, [...rows('attendance').values()]), false);
       assert.deepEqual(rows('attendance').get('historical'), historical);
+    });
+    await t.test('40-person save uses two batch reads and one batch write, preserves data and rejects outsiders atomically', async () => {
+      const records = Array.from({ length: 40 }, (_, i) => {
+        const id = `batch-${i}`;
+        rows('participants').set(id, { ...participant, id, observacion_general: 'preserve' });
+        return { ...day, id: 'client-' + i, participant_id: id, dia: 1, turno: 'PM', estado_asistencia: i < 2 ? 'Baja' : 'Asistió' };
+      });
+      const request = { body: { records } };
+      const send = () => invoke(operationRoutes, '/attendance/bulk', 'put', request);
+      batchReads = 0; batchWrites = 0;
+      const saved = await send();
+      assert.equal(saved.code, 200);
+      assert.equal(saved.payload.saved, 40);
+      assert.equal(batchReads, 2);
+      assert.equal(batchWrites, 1);
+      assert.equal(rows('participants').get('batch-0')?.observacion_general, 'preserve');
+      const count = rows('attendance').size;
+      assert.equal((await send()).code, 200);
+      assert.equal(rows('attendance').size, count);
+      rows('participants').get('batch-39')!.training_session_id = 'outside';
+      records[0].estado_asistencia = 'Asistió';
+      assert.equal((await send()).code, 403);
+      assert.equal(rows('attendance').get('att-shift-s-batch-0-1-PM')?.estado_asistencia, 'Baja');
     });
     await t.test('manual disabling survives synchronization; early enabling is rejected', async () => {
       const survey = rows('surveys').get('srv-ojt-training-s')!;

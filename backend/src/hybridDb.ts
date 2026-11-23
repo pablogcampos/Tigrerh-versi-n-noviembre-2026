@@ -481,6 +481,52 @@ class HybridTransaction {
 
   constructor(private readonly client: QueryClient) {}
 
+  async getAll(refs: HybridDocumentReference[]) {
+    if (!refs.length) return [];
+    await ensureHybridSchema();
+    const keys = JSON.stringify(refs.map((ref) => ({ collection_name: ref.collectionName, document_id: ref.id })));
+    await this.client.query(`
+      SELECT pg_advisory_xact_lock(hashtext(k.collection_name), hashtext(k.document_id))
+      FROM (SELECT DISTINCT collection_name, document_id
+        FROM jsonb_to_recordset($1::jsonb) AS x(collection_name text, document_id text)
+        ORDER BY collection_name, document_id) k`, [keys]);
+    const result = await this.client.query(`
+      SELECT d.collection_name, d.document_id, d.payload, d.is_deleted
+      FROM tigre_rh.current_documents d
+      JOIN jsonb_to_recordset($1::jsonb) AS k(collection_name text, document_id text)
+        USING (collection_name, document_id)
+      ORDER BY d.collection_name, d.document_id FOR UPDATE OF d`, [keys]);
+    const values = new Map(result.rows.map((row: any) => [
+      JSON.stringify([row.collection_name, row.document_id]), row.is_deleted ? undefined : row.payload,
+    ]));
+    return refs.map((ref) => new HybridDocumentSnapshot(ref, values.get(JSON.stringify([ref.collectionName, ref.id])) as Data | undefined));
+  }
+
+  // Full documents already read and locked by getAll; no additional per-document reads.
+  setAll(records: Array<{ ref: HybridDocumentReference; data: Data }>) {
+    if (!records.length) return this;
+    const unique = new Map(records.map((record) => [JSON.stringify([record.ref.collectionName, record.ref.id]), record]));
+    const values = [...unique.values()].map(({ ref, data }) => ({
+      collection_name: ref.collectionName, document_id: ref.id,
+      document_path: `${ref.collectionName}/${ref.id}`, payload: cleanData(data),
+    }));
+    this.operations.push(async () => {
+      await ensureHybridSchema();
+      await this.client.query(`
+        INSERT INTO tigre_rh.current_documents
+          (collection_name, document_id, document_path, payload, source_payload, is_deleted, created_at, updated_at)
+        SELECT collection_name, document_id, document_path, payload, payload, FALSE, NOW(), NOW()
+        FROM jsonb_to_recordset($1::jsonb) AS x(collection_name text, document_id text, document_path text, payload jsonb)
+        ORDER BY collection_name, document_id
+        ON CONFLICT (collection_name, document_id) DO UPDATE SET
+          payload = EXCLUDED.payload, source_payload = EXCLUDED.source_payload,
+          document_path = EXCLUDED.document_path, source_hash = NULL, is_deleted = FALSE, updated_at = NOW()`,
+      [JSON.stringify(values)]);
+      for (const name of new Set(values.map((value) => value.collection_name))) markCollectionChanged(name);
+    });
+    return this;
+  }
+
   async get(ref: HybridDocumentReference) {
     await this.client.query(
       'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))',

@@ -25,6 +25,11 @@ const save = async <T = void>(path: string, body: unknown): Promise<T> => {
     const data = await response.json().catch(() => null);
     if (!response.ok || data?.ok !== true) throw new Error(data?.message || 'El servidor no confirmo el guardado.');
     return data as T;
+  } catch (error) {
+    if (path === '/api/operations/attendance/bulk' && error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name)) {
+      throw new Error('El servidor tardó en confirmar. Tus marcas siguen pendientes; vuelve a guardar el turno.');
+    }
+    throw error;
   } finally {
     pendingWrites -= 1;
   }

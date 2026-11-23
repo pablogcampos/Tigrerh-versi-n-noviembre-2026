@@ -245,9 +245,8 @@ router.put(
       const savedRecords: Record<string, any>[] = [];
       const ids = new Set<string>();
       for (const record of parsed.data.records) {
-        const participant = await adminDb.collection('participants').doc(String(record.participant_id || '')).get();
-        if (!participant.exists || participant.data()?.training_session_id !== record.training_session_id) {
-          res.status(403).json({ message: 'El participante no pertenece a la capacitacion.' }); return;
+        if (!record.participant_id) {
+          res.status(400).json({ message: 'Falta el participante de la asistencia.' }); return;
         }
         if (!['Asistió', 'Tardanza', 'Faltó', 'Descanso médico', 'Desistió', 'Baja', 'Feriado', 'Seleccionar'].includes(String(record.estado_asistencia))) {
           res.status(400).json({ message: 'Estado de asistencia invalido.' }); return;
@@ -260,16 +259,29 @@ router.put(
       }
       const people = new Map(savedRecords.map((record) => [String(record.participant_id), String(record.training_session_id)]));
       let committedRecords: Record<string, any>[] = [];
+      const surveyParticipants: Record<string, any>[] = [];
+      const surveyAttendance: Record<string, any>[] = [];
       // Lock each participant before reading both shifts. The marks and continuations commit together.
       await adminDb.runTransaction(async (transaction) => {
         const plans: Array<{ records: Record<string, any>[]; participant: Record<string, any>; update: boolean }> = [];
+        const participantDocs = await transaction.getAll([...people.keys()].sort().map((id) => adminDb.collection('participants').doc(id)));
+        const participantsById = new Map(participantDocs.map((doc) => [doc.id, doc]));
+        const attendanceRefs = [...people].flatMap(([id, sessionId]) =>
+          Array.from({ length: 5 }, (_, index) => ['AM', 'PM'].map((turno) =>
+            adminDb.collection('attendance').doc(shiftId(sessionId, id, index + 1, turno)))).flat());
+        const attendanceDocs = await transaction.getAll(attendanceRefs);
+        const previousById = new Map(attendanceDocs.filter((doc) => doc.exists).map((doc) => [doc.id, { ...doc.data(), id: doc.id }]));
         for (const [id, sessionId] of [...people].sort(([a], [b]) => a.localeCompare(b))) {
-          const participantRef = adminDb.collection('participants').doc(id);
-          const participant: Record<string, any> = { ...((await transaction.get(participantRef)).data()), id };
+          const document = participantsById.get(id);
+          if (!document?.exists || document.data().training_session_id !== sessionId ||
+            savedRecords.some((record) => record.participant_id === id && record.training_session_id !== sessionId)) {
+            throw Object.assign(new Error('El participante no pertenece a la capacitacion.'), { status: 403 });
+          }
+          const participant: Record<string, any> = { ...document.data(), id };
           const previous: Record<string, any>[] = [];
           for (let day = 1; day <= 5; day++) for (const turno of ['AM', 'PM']) {
-            const document = await transaction.get(adminDb.collection('attendance').doc(shiftId(sessionId, id, day, turno)));
-            if (document.exists) previous.push({ ...document.data(), id: document.id });
+            const record = previousById.get(shiftId(sessionId, id, day, turno));
+            if (record) previous.push(record);
           }
           const session = sessions.get(sessionId)!;
           const plan = planShiftContinuations(previous, savedRecords.filter((record) => record.participant_id === id),
@@ -278,19 +290,27 @@ router.put(
             (plan.hasDropout || isDropoutAttendance(participant.estado_final));
           plans.push({ records: plan.writes, participant: { ...participant,
             estado_final: plan.hasDropout ? 'Desistió' : 'En formación' }, update });
-        }
-        for (const plan of plans) {
-          for (const record of plan.records) transaction.set(adminDb.collection('attendance').doc(record.id), record, { merge: true });
-          if (plan.update) {
-            transaction.set(adminDb.collection('participants').doc(plan.participant.id), { estado_final: plan.participant.estado_final }, { merge: true });
+          if (savedRecords.some((record) => record.participant_id === id && Number(record.dia) === 5)) {
+            surveyParticipants.push(participant);
+            const effective = new Map(previous.map((record) => [record.id, record]));
+            for (const record of plan.writes) effective.set(record.id, record);
+            surveyAttendance.push(...effective.values());
           }
         }
+        const writes: Array<{ ref: ReturnType<ReturnType<typeof adminDb.collection>['doc']>; data: Record<string, any> }> = [];
+        for (const plan of plans) {
+          for (const record of plan.records) writes.push({ ref: adminDb.collection('attendance').doc(record.id),
+            data: { ...previousById.get(record.id), ...record } });
+          if (plan.update) {
+            writes.push({ ref: adminDb.collection('participants').doc(plan.participant.id), data: plan.participant });
+          }
+        }
+        transaction.setAll(writes);
         committedRecords = plans.flatMap((plan) => plan.records);
       });
-      for (const [id, sessionId] of people) {
+      for (const sessionId of new Set(surveyParticipants.map((participant) => String(participant.training_session_id)))) {
         try {
-          const participant = await adminDb.collection('participants').doc(id).get();
-          await syncOjtSurveyForEligibleParticipant({ ...participant.data(), id }, { ...sessions.get(sessionId), id: sessionId }, req.user!.uid);
+          await ensureDayFiveOjtSurvey({ ...sessions.get(sessionId), id: sessionId }, surveyParticipants, surveyAttendance, req.user!.uid);
         } catch (error) {
           // Attendance is already durable; survey reconciliation can retry on bootstrap.
           console.error('Survey synchronization after shift save:', error);
@@ -323,6 +343,9 @@ router.put(
     res.json({ ok: true, saved: parsed.data.records.length });
     } catch (error) {
       console.error('Attendance batch save failed:', error);
+      if ((error as { status?: number }).status === 403) {
+        res.status(403).json({ message: (error as Error).message }); return;
+      }
       res.status(503).json({ message: 'No se pudo confirmar el guardado. Conserva las marcas y vuelve a intentar.' });
     }
   },
