@@ -6,6 +6,7 @@ import { isToolsDropout } from '../../backend/src/services/attendancePolicy';
 
 import { calculatePhaseMetrics, getSessionFinalTrainingDay } from '../../backend/src/services/trainingPhaseMetrics';
 import { dropoutShiftCounts } from '../utils/attendanceShifts';
+import { dropoutsByProfile } from '../utils/dropoutsByProfile';
 import React, { useState, useMemo } from 'react';
 import {
   BarChart,
@@ -378,19 +379,10 @@ export default function Dashboard({
     })).sort((a, b) => b.value - a.value);
   }, [filteredAttendance]);
 
-  const d5VsProfileBajasData = useMemo(() => {
-    return Array.from(new Set(filteredSessions.map((session) => session.campaña))).sort().map((campaign) => {
-      const sessionIds = new Set(filteredSessions.filter((session) => session.campaña === campaign).map((session) => session.id));
-      const participantIds = new Set<string>(filteredParticipants.filter((participant) => sessionIds.has(participant.training_session_id)).map((participant) => participant.id));
-      const phase = calculatePhaseMetrics(participantIds, filteredAttendance, filteredConfirmations, finalDayByParticipant);
-      const bajasD5 = new Set(filteredAttendance.filter((record) =>
-        participantIds.has(record.participant_id) && record.dia === 5 &&
-        normalizeAttendanceStatus(record.estado_asistencia) === 'desistio' &&
-        normalizeAttendanceStatus(record.motivo_desercion) === 'no cumple con el perfil',
-      ).map((record) => record.participant_id));
-      return { name: campaign, 'Asistentes D5': phase.d5Ids.size, 'Bajas D5 perfil': bajasD5.size };
-    });
-  }, [filteredSessions, filteredParticipants, filteredAttendance, filteredConfirmations, finalDayByParticipant]);
+  const profileDropouts = useMemo(
+    () => dropoutsByProfile(filteredParticipants, filteredAttendance),
+    [filteredParticipants, filteredAttendance],
+  );
 
   const desercionesPorMotivoTotal = useMemo(
     () => desercionesPorMotivo.reduce((sum, item) => sum + item.value, 0),
@@ -936,31 +928,32 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* Comparativo D5 */}
+      {/* Deserciones por perfil y primer dia de caida */}
       <div className="glass-card flex flex-col p-5 rounded-2xl">
-        <div className="flex justify-between items-center mb-4">
+        <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
           <h3 className="text-slate-800 font-bold text-base flex items-center gap-1.5">
             <Layers className="text-blue-600 w-4.5 h-4.5" />
-            Asistentes D5 vs. Bajas D5 por Perfil
+            Caídas por perfil y día
           </h3>
-          <span className="text-slate-400 text-xs font-mono">Por campaña</span>
+          <span className="text-slate-400 text-xs font-mono">D1 a D5</span>
         </div>
         <div className="min-h-[220px]">
-          {d5VsProfileBajasData.length === 0 ? (
+          {!profileDropouts.some((row) => row.total > 0) ? (
             <div className="h-[220px] flex flex-col items-center justify-center text-center text-slate-400">
               <Layers className="w-8 h-8 mb-2 text-slate-300" />
-              <p className="text-sm font-medium">Sin datos de asistencia D5 todavía</p>
+              <p className="text-sm font-medium">Sin bajas ni desistimientos en este período</p>
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={d5VsProfileBajasData} margin={{ top: 10, right: 20, left: -20, bottom: 0 }}>
+            <ResponsiveContainer width="100%" height={Math.max(260, profileDropouts.length * 46 + 60)}>
+              <BarChart data={profileDropouts} layout="vertical" barSize={24} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} />
-                <YAxis stroke="#94a3b8" fontSize={11} />
-                <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }} />
+                <XAxis type="number" allowDecimals={false} stroke="#94a3b8" fontSize={11} />
+                <YAxis type="category" dataKey="name" width={92} interval={0} stroke="#94a3b8" fontSize={11} />
+                <Tooltip filterNull contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }} />
                 <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="Asistentes D5" fill="#10b981" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="Bajas D5 perfil" fill="#f43f5e" radius={[4, 4, 0, 0]} />
+                {['#6366f1', '#0d9488', '#eab308', '#f97316', '#e11d48'].map((color, index) => (
+                  <Bar key={index} dataKey={`D${index + 1}`} name={`Día ${index + 1}`} stackId="dropouts" fill={color} />
+                ))}
               </BarChart>
             </ResponsiveContainer>
           )}
