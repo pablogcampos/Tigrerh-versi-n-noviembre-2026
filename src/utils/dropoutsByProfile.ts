@@ -36,3 +36,26 @@ export const dropoutsByProfile = (
   }
   return [...rows.values()];
 };
+
+export const dayOneAttendanceByProfile = (
+  participants: Pick<Participant, 'id' | 'training_session_id' | 'puesto'>[],
+  attendance: Array<Pick<AttendanceRecord, 'participant_id' | 'training_session_id' | 'dia'> & { estado_asistencia: string }>,
+) => {
+  const people = new Map(participants.map((p) => [JSON.stringify([p.training_session_id, p.id]), p]));
+  const attended = new Set(attendance.filter((record) => Number(record.dia) === 1 &&
+    normalize(record.estado_asistencia) === 'asistio')
+    .map((record) => JSON.stringify([record.training_session_id, record.participant_id])));
+  const rows = ['Comercial', 'Corporativo', 'Consultivo', 'Call center', 'Otros']
+    .map((name) => ({ name, cargados: 0, asistentes: 0, porcentaje: 0, label: '' }));
+  const byProfile = new Map(rows.map((row) => [row.name, row]));
+  for (const [key, person] of people) {
+    const row = byProfile.get(profileName(person.puesto || '')) || byProfile.get('Otros')!;
+    row.cargados++;
+    if (attended.has(key)) row.asistentes++;
+  }
+  for (const row of rows) {
+    row.porcentaje = row.cargados ? Math.round(row.asistentes / row.cargados * 1000) / 10 : 0;
+    row.label = `${row.name} (${row.porcentaje.toLocaleString('es-PE')}%)`;
+  }
+  return rows;
+};

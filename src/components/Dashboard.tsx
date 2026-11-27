@@ -6,7 +6,7 @@ import { isToolsDropout } from '../../backend/src/services/attendancePolicy';
 
 import { calculatePhaseMetrics, getSessionFinalTrainingDay } from '../../backend/src/services/trainingPhaseMetrics';
 import { dropoutShiftCounts } from '../utils/attendanceShifts';
-import { dropoutsByProfile } from '../utils/dropoutsByProfile';
+import { dropoutsByProfile, dayOneAttendanceByProfile } from '../utils/dropoutsByProfile';
 import React, { useState, useMemo } from 'react';
 import {
   BarChart,
@@ -16,6 +16,7 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
+  LabelList,
   ResponsiveContainer,
   PieChart,
   Pie,
@@ -212,6 +213,10 @@ export default function Dashboard({
   }, [attendance, filteredParticipantIds]);
 
   const shiftDropouts = useMemo(() => dropoutShiftCounts(filteredAttendance), [filteredAttendance]);
+  const dayOneProfiles = useMemo(
+    () => dayOneAttendanceByProfile(filteredParticipants, filteredAttendance),
+    [filteredParticipants, filteredAttendance],
+  );
 
   // Helper to filter out deleted altas
   const validConfirmations = useMemo(() => {
@@ -740,9 +745,10 @@ export default function Dashboard({
         </div>
       </div>
 
-      <div className="glass-card rounded-2xl p-5">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      <div className="glass-card rounded-2xl p-5 min-w-0">
         <h3 className="text-slate-800 font-bold text-base mb-4">Deserciones por turno</h3>
-        <ResponsiveContainer width="100%" height={220}>
+        <ResponsiveContainer width="100%" height={320}>
           <BarChart data={shiftDropouts} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="name" fontSize={12} /><YAxis allowDecimals={false} />
@@ -752,6 +758,30 @@ export default function Dashboard({
         <div className="flex flex-wrap gap-6 mt-2 text-xs text-slate-600">
           {shiftDropouts.map((item) => <span key={item.name}>{item.name}: <b>{item.cantidad}</b></span>)}
         </div>
+      </div>
+      <div className="glass-card rounded-2xl p-5 min-w-0">
+        <h3 className="text-slate-800 font-bold text-base mb-4">Selección vs. asistencia D1 por perfil</h3>
+        {dayOneProfiles.some((row) => row.cargados > 0) ? (
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={dayOneProfiles} layout="vertical" barSize={14} barGap={3}
+              margin={{ top: 8, right: 28, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+              <XAxis type="number" allowDecimals={false} fontSize={11} />
+              <YAxis type="category" dataKey="label" width={132} interval={0} fontSize={11} tickLine={false} />
+              <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }} />
+              <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="cargados" name="Cargados por Selección" fill="#6366f1" radius={[0, 3, 3, 0]}>
+                <LabelList dataKey="cargados" position="right" fontSize={11} fill="#475569" />
+              </Bar>
+              <Bar dataKey="asistentes" name="Asistieron D1" fill="#0d9488" radius={[0, 3, 3, 0]}>
+                <LabelList dataKey="asistentes" position="right" fontSize={11} fill="#475569" />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="h-[320px] flex items-center justify-center text-sm text-slate-400">Sin postulantes en este período</div>
+        )}
+      </div>
       </div>
       {/* Charts Panel Row 2 */}
       <div className="grid grid-cols-1 gap-6">
